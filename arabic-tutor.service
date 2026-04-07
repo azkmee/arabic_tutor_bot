@@ -1,0 +1,16 @@
+[Unit]
+Description=Arabic Tutor Telegram Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=opc
+WorkingDirectory=/home/opc/arabic_tutor_bot
+EnvironmentFile=/home/opc/arabic_tutor_bot/.env
+ExecStart=/home/opc/arabic_tutor_bot/venv/bin/python -m bot.main
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
