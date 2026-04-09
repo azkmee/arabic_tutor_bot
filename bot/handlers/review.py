@@ -11,6 +11,10 @@ from bot.services.cards import build_card, build_paragraph_card
 _TT_SHORT = {"meaning": "m", "plural": "p", "fill_blank": "f", "root_derive": "r", "grammar": "g"}
 _TT_LONG = {v: k for k, v in _TT_SHORT.items()}
 
+# Abbreviations for session types
+_ST_SHORT = {"morning": "am", "lunch": "ln", "dinner": "dn", "on_demand": "od"}
+_ST_LONG = {v: k for k, v in _ST_SHORT.items()}
+
 
 async def send_review_session(context, session_type="morning"):
     """Send a mixed review session: 5 vocab + 2 grammar + 1 sentence."""
@@ -20,17 +24,22 @@ async def send_review_session(context, session_type="morning"):
     grammar_due = db.get_due_items(item_type="grammar_rule", limit=REVIEW_SESSION["grammar"])
 
     all_items = vocab_due + grammar_due
+
+    # Fallback: if type-filtered queries return nothing, try without type filter
+    if not all_items:
+        all_items = db.get_due_items(limit=REVIEW_SESSION["vocab"] + REVIEW_SESSION["grammar"])
+
     total_due_count = len(db.get_due_items())
 
     if not all_items:
-        # Try to send a paragraph even if no vocab/grammar due
-        difficulty = "long" if session_type == "dinner" else "short"
-        paragraphs = db.get_paragraphs(difficulty=difficulty, limit=1)
+        # Try to send a passage even if no vocab/grammar due
+        paragraphs = db.get_passages(limit=1)
         if paragraphs:
             card_text = build_paragraph_card(paragraphs[0])
             await context.bot.send_message(
                 chat_id=chat_id, text=card_text, parse_mode="HTML"
             )
+            db.mark_passage_shown(paragraphs[0]["_id"])
         else:
             await context.bot.send_message(
                 chat_id=chat_id,
@@ -52,18 +61,20 @@ async def send_review_session(context, session_type="morning"):
             f"{session_label} <b>وقت المراجعة</b> — Review Time!\n"
             f"{'─' * 28}\n"
             f"<b>{total_due_count}</b> items due today.\n"
-            f"This session: {len(vocab_due)} vocab + {len(grammar_due)} grammar"
+            f"This session: {len(all_items)} cards"
         ),
         parse_mode="HTML",
     )
 
     # Initialize session tracking (short ID to fit 64-byte callback_data limit)
     session_id = uuid.uuid4().hex[:8]
+    st = _ST_SHORT.get(session_type, "od")
     context.bot_data[session_id] = {
         "correct": 0,
         "wrong": 0,
         "total": len(all_items),
         "answered": 0,
+        "session_type": session_type,
     }
 
     random.shuffle(all_items)
@@ -80,8 +91,8 @@ async def send_review_session(context, session_type="morning"):
         tt = _TT_SHORT.get(test_type, test_type[0])
         keyboard = InlineKeyboardMarkup([
             [
-                InlineKeyboardButton("✅ Got it", callback_data=f"{item_id_str}:c:{tt}:{session_id}"),
-                InlineKeyboardButton("❌ Missed it", callback_data=f"{item_id_str}:w:{tt}:{session_id}"),
+                InlineKeyboardButton("✅ Got it", callback_data=f"{item_id_str}:c:{tt}:{session_id}:{st}"),
+                InlineKeyboardButton("❌ Missed it", callback_data=f"{item_id_str}:w:{tt}:{session_id}:{st}"),
             ]
         ])
 
@@ -89,19 +100,19 @@ async def send_review_session(context, session_type="morning"):
             chat_id=chat_id, text=card_text, parse_mode="HTML", reply_markup=keyboard
         )
 
-    # Send paragraph card at the end
-    difficulty = "long" if session_type == "dinner" else "short"
-    paragraphs = db.get_paragraphs(difficulty=difficulty, limit=1)
+    # Send passage card at the end
+    paragraphs = db.get_passages(limit=1)
     if paragraphs:
         card_text = build_paragraph_card(paragraphs[0])
         await context.bot.send_message(
             chat_id=chat_id, text=card_text, parse_mode="HTML"
         )
+        db.mark_passage_shown(paragraphs[0]["_id"])
 
 
 async def review_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /review command — trigger an on-demand review session."""
-    await send_review_session(context, session_type="morning")
+    await send_review_session(context, session_type="on_demand")
 
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -118,8 +129,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     answer = parts[1]
     test_type_short = parts[2]
     session_id = parts[3] if len(parts) > 3 else None
+    st_short = parts[4] if len(parts) > 4 else "od"
 
     test_type = _TT_LONG.get(test_type_short, test_type_short)
+    session_type = _ST_LONG.get(st_short, "on_demand")
 
     # Find the progress document
     from bson import ObjectId
@@ -128,10 +141,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     correct = answer == "c"
-    db.update_progress(prog, correct, test_type)
+    db.update_progress(prog, correct, test_type, session_type=session_type)
 
-    # Update the message to show result
-    result_emoji = "✅" if correct else "❌"
+    # Remove buttons
     await query.edit_message_reply_markup(reply_markup=None)
 
     # Track session results

@@ -14,7 +14,8 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📚 Total words: {stats['total_words']}\n"
         f"📅 Due today: {stats['due_today']}\n"
         f"🏆 Mastered (level 7+): {stats['mastered']}\n"
-        f"📝 Pending raw words: {stats['pending_raw']}\n",
+        f"🩸 Leeches: {stats['leeches']}\n"
+        f"📝 Pending raw words: {stats['pending_raw']}",
         parse_mode="HTML",
     )
 
@@ -30,9 +31,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/help — Show this message\n"
         "\n"
         "<b>Scheduled Reviews:</b>\n"
-        "🌅 Morning (9AM SGT) — 5 vocab + 2 grammar + 1 sentence\n"
-        "🌞 Lunch (1PM SGT) — 5 vocab + 2 grammar + 1 sentence\n"
-        "🌙 Dinner (8PM SGT) — 5 vocab + 2 grammar + 1 long passage\n"
+        "🌅 Morning (9AM SGT) — 5 vocab + 2 grammar + 1 passage\n"
+        "🌞 Lunch (1PM SGT) — 5 vocab + 2 grammar + 1 passage\n"
+        "🌙 Dinner (8PM SGT) — 5 vocab + 2 grammar + 1 passage\n"
         "\n"
         "<b>Adding Words:</b>\n"
         "• Via Telegram: /add كتاب book\n"

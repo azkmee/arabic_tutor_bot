@@ -143,71 +143,94 @@ Add to your Claude Desktop MCP config (`claude_desktop_config.json`):
 }
 ```
 
-## MongoDB Collections
+## MongoDB Collections (Canonical Schema)
 
 Database: `arabic_learning`
 
 ### `vocabulary_items` — Master word/grammar data
 
-| Field | Type | Description |
-|---|---|---|
-| `arabic` | string | Arabic word/phrase (unique key) |
-| `transliteration` | string | Romanized pronunciation |
-| `translation` | string | English meaning |
-| `type` | string | `"word"` / `"grammar_rule"` / `"phrase"` |
-| `root` | string | 3-letter Arabic root (optional) |
-| `plural` | string | Arabic plural form (optional) |
-| `example_sentence` | string | Arabic sentence using the word (optional) |
-| `created_at` | datetime | When the word was added |
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `arabic` | string | yes | Arabic word/phrase with tashkeel (unique key) |
+| `transliteration` | string | yes | Romanized pronunciation |
+| `translation` | string | yes | English meaning |
+| `type` | string | yes | `noun`, `verb`, `adjective`, `adverb`, `preposition`, `particle`, `phrase`, `grammar_rule` |
+| `root` | string | | Arabic root (e.g. `"ك ت ب"`). Enables root_derive test |
+| `plural` | string | | Arabic plural form. Enables plural test |
+| `gender` | string | | `"masculine"` or `"feminine"` |
+| `verb_form` | int | | Arabic verb form (1–10), verbs only |
+| `example_sentence` | string | | Arabic sentence using the word. Enables fill_blank test |
+| `example_translation` | string | | English translation of example sentence |
+| `tags` | array | | Freeform tags: `["MSA", "beginner", "school"]` |
+| `source` | string | | How it was added: `"image"`, `"telegram"`, `"bulk_import"` |
+| `created_at` | datetime | | When the word was added |
 
 ### `item_progress` — SRS state per word
 
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `arabic` | string | | Reference to `vocabulary_items.arabic` (unique) |
+| `srs_level` | int | 0 | Current SRS level (0–8) |
+| `next_review_at` | string | today | ISO date `"YYYY-MM-DD"` for next review |
+| `ease_factor` | float | 2.5 | SM-2 style per-word difficulty multiplier (1.3–3.0) |
+| `streak` | int | 0 | Consecutive correct answers |
+| `lapse_count` | int | 0 | Times reset to level 0. Word is a "leech" after 4 lapses |
+| `last_test_type` | string | `""` | Last question type (avoids consecutive repeats) |
+| `weak_test_types` | array | `[]` | Test types user struggles with (auto-pruned on improvement) |
+| `test_type_stats` | object | `{}` | Per-type accuracy: `{"meaning": {"correct": 12, "wrong": 1}}` |
+| `last_reviewed_at` | datetime | null | When user last reviewed this word |
+| `created_at` | datetime | | When this progress record was created |
+
+### `recall_log` — Review history (append-only)
+
 | Field | Type | Description |
 |---|---|---|
-| `_id` | ObjectId | Auto-generated |
-| `arabic` | string | Reference to vocabulary_items |
-| `srs_level` | int | Current SRS level (0–8) |
-| `next_review_at` | string | ISO date `"YYYY-MM-DD"` for next review |
-| `streak` | int | Consecutive correct answers |
-| `last_test_type` | string | Last question type asked |
-| `weak_test_types` | array | Question types user struggles with |
-
-### `recall_log` — Historical review log
-
-| Field | Type | Description |
-|---|---|---|
-| `item_id` | string | Reference to `item_progress._id` |
+| `item_progress_id` | string | Reference to `item_progress._id` |
 | `arabic` | string | The Arabic word reviewed |
 | `test_type` | string | Question type used |
 | `correct` | boolean | Whether answer was correct |
+| `quality` | int | 0–5 (SM-2 scale). Default: 4 if correct, 1 if wrong |
+| `session_type` | string | `"morning"`, `"lunch"`, `"dinner"`, `"on_demand"` |
+| `srs_level_before` | int | SRS level before this review (for analytics) |
 | `reviewed_at` | datetime | UTC timestamp |
 
-### `raw_words` — Staging for Telegram input
+### `raw_words` — Staging for unprocessed input
 
 | Field | Type | Description |
 |---|---|---|
 | `text` | string | Raw user input (e.g., `"كتاب book"`) |
-| `source` | string | `"telegram"` or `"claude_desktop"` |
-| `status` | string | `"pending"` or `"processed"` |
+| `source` | string | `"telegram"` or `"image"` |
+| `status` | string | `"pending"`, `"processed"`, or `"rejected"` |
+| `processed_at` | datetime | When status changed from pending |
+| `vocabulary_item_arabic` | string | Which vocabulary_item was created (traceability) |
 | `created_at` | datetime | When queued |
 
-### `paragraphs` — AI-generated reading passages
+### `passages` — Reading comprehension passages
 
 | Field | Type | Description |
 |---|---|---|
-| `text_arabic` | string | Arabic paragraph |
+| `title` | string | Short title for display |
+| `text_arabic` | string | Arabic passage text (canonical field name) |
 | `text_english` | string | English translation |
-| `words_used` | array | List of Arabic words used |
+| `words_used` | array | Arabic words from vocabulary used in passage |
+| `comprehension_questions` | array | Arabic comprehension questions |
 | `difficulty` | string | `"short"` or `"long"` |
+| `last_shown_at` | datetime | When last displayed (for least-recently-shown selection) |
+| `times_shown` | int | Total display count |
 | `created_at` | datetime | When generated |
 
 ## SRS Algorithm
 
-Spaced repetition intervals (in days):
+Base intervals (in days):
 
 | Level | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
 |---|---|---|---|---|---|---|---|---|---|
 | Days | 0 | 1 | 3 | 7 | 14 | 30 | 60 | 90 | 180 |
 
-- **Correct**: Level up, extend interval, increment streak
-- **Wrong**: Reset to level 0, review tomorrow, track weak test type
+Actual interval = `base_interval × (ease_factor / 2.5)`, rounded to nearest day.
+
+- **Correct**: Level up, ease_factor +0.1 (max 3.0), increment streak
+- **Wrong**: Reset to level 0, ease_factor -0.2 (min 1.3), review tomorrow, lapse_count +1
+- **Leech**: After 4 lapses, word is flagged in /status
+- **Test selection**: Weighted by per-type accuracy — weaker types appear more often
+- **Weak type pruning**: Removed from weak list after 2+ consecutive correct answers

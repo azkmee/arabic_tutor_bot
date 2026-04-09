@@ -1,5 +1,46 @@
 import random
-from bot.config import TEST_TYPE_LABELS
+from bot.config import TEST_TYPE_LABELS, LEECH_THRESHOLD
+
+
+def _pick_test_type(item, prog):
+    """Pick a test type using weighted selection based on test_type_stats."""
+    itype = item.get("type", "noun")
+
+    if itype == "grammar_rule":
+        return "grammar"
+
+    # Build available test types based on word data
+    options = ["meaning"]
+    if item.get("plural"):
+        options.append("plural")
+    if item.get("root"):
+        options.append("root_derive")
+    if item.get("example_sentence"):
+        options.append("fill_blank")
+
+    # Weight by weakness: test_type_stats drives selection
+    stats = prog.get("test_type_stats", {})
+    last_test = prog.get("last_test_type", "")
+
+    # Calculate weights: lower accuracy = higher weight
+    weights = []
+    for tt in options:
+        if tt == last_test and len(options) > 1:
+            weights.append(0)  # avoid repeating same test
+            continue
+        st = stats.get(tt, {})
+        total = st.get("correct", 0) + st.get("wrong", 0)
+        if total == 0:
+            weights.append(3)  # untested types get high priority
+        else:
+            accuracy = st.get("correct", 0) / total
+            # Lower accuracy = higher weight (1-5 scale)
+            weights.append(max(1, round(5 * (1 - accuracy))))
+
+    if sum(weights) == 0:
+        return random.choice(options)
+
+    return random.choices(options, weights=weights, k=1)[0]
 
 
 def build_card(item, prog):
@@ -9,34 +50,24 @@ def build_card(item, prog):
     eng = item.get("translation", "")
     root = item.get("root", "")
     plural = item.get("plural", "")
-    itype = item.get("type", "word")
     level = prog.get("srs_level", 0)
     streak = prog.get("streak", 0)
+    lapse_count = prog.get("lapse_count", 0)
 
-    last_test = prog.get("last_test_type", "")
-    weak = prog.get("weak_test_types", [])
-
-    if itype == "grammar_rule":
-        test_type = "grammar"
-    else:
-        options = ["meaning", "meaning"]
-        if plural:
-            options.append("plural")
-        if root:
-            options.append("root_derive")
-        options.append("fill_blank")
-        candidates = [t for t in weak if t in options] or options
-        candidates = [t for t in candidates if t != last_test] or candidates
-        test_type = random.choice(candidates)
+    test_type = _pick_test_type(item, prog)
 
     label = TEST_TYPE_LABELS.get(test_type, "💬 Review")
     stars = "⭐" * min(level, 8)
-    streak_str = f"🔥 {streak} day streak" if streak >= 2 else ""
+    streak_str = f"🔥 {streak}" if streak >= 2 else ""
+    leech_str = "🩸 Leech" if lapse_count >= LEECH_THRESHOLD else ""
+    status_parts = [s for s in [f"SRS {level}/8", stars, streak_str, leech_str] if s]
 
     lines = ["<b>مراجعة يومية</b> — Daily Review", "─" * 28, label, ""]
 
     if test_type == "meaning":
-        lines += [f"<b>{arabic}</b>", f"<i>({trans})</i>" if trans else ""]
+        lines += [f"<b>{arabic}</b>"]
+        if trans:
+            lines.append(f"<i>({trans})</i>")
         lines += [
             "",
             f"<tg-spoiler>➡️  {eng}</tg-spoiler>",
@@ -57,8 +88,6 @@ def build_card(item, prog):
             f"Root: <b>{root}</b>",
             "",
             f"Derive the word that means: <b>{eng}</b>",
-        ]
-        lines += [
             "",
             f"<tg-spoiler>➡️  {arabic}  ({trans})</tg-spoiler>",
             "<i>Tap to reveal, then rate:</i>",
@@ -66,17 +95,21 @@ def build_card(item, prog):
 
     elif test_type == "fill_blank":
         sentence = item.get("example_sentence", "")
+        example_trans = item.get("example_translation", "")
         if sentence:
             blank = sentence.replace(arabic, "________")
+            lines += [blank, ""]
+            reveal = f"➡️  {arabic}  ({eng})"
+            if example_trans:
+                reveal += f"\n📝 {example_trans}"
             lines += [
-                blank,
-                "",
-                f"<tg-spoiler>➡️  {arabic}  ({eng})</tg-spoiler>",
+                f"<tg-spoiler>{reveal}</tg-spoiler>",
                 "<i>Tap to reveal, then rate:</i>",
             ]
         else:
+            # Fallback to meaning if no example sentence
             lines += [
-                f"<b>{arabic}</b>  ({trans})",
+                f"<b>{arabic}</b>",
                 "",
                 f"<tg-spoiler>➡️  {eng}</tg-spoiler>",
                 "<i>Tap to reveal, then rate:</i>",
@@ -93,31 +126,37 @@ def build_card(item, prog):
                 "<i>Tap to reveal, then rate:</i>",
             ]
 
-    lines += ["", "─" * 28, f"SRS level {level}/8  {stars}  {streak_str}"]
+    lines += ["", "─" * 28, "  ".join(status_parts)]
 
     return "\n".join(l for l in lines if l is not None), test_type
 
 
 def build_paragraph_card(paragraph):
     """Build a reading comprehension card from a paragraph document."""
-    arabic = paragraph.get("text_arabic", "")
+    # Support both field naming conventions for backward compat
+    arabic = paragraph.get("text_arabic") or paragraph.get("arabic_text", "")
     english = paragraph.get("text_english", "")
-    words = paragraph.get("words_used", [])
-    difficulty = paragraph.get("difficulty", "short")
+    title = paragraph.get("title", "")
+    questions = paragraph.get("comprehension_questions", [])
 
-    label = "📖 Reading Comprehension" if difficulty == "short" else "📖 Extended Reading"
     lines = [
         "<b>مراجعة يومية</b> — Daily Review",
         "─" * 28,
-        label,
+        "📖 Reading Comprehension",
         "",
-        arabic,
-        "",
-        f"<tg-spoiler>➡️  {english}</tg-spoiler>",
-        "<i>Tap to reveal translation, then rate:</i>",
-        "",
-        "─" * 28,
-        f"Words used: {', '.join(words)}" if words else "",
     ]
+    if title:
+        lines += [f"<b>{title}</b>", ""]
+    lines.append(arabic)
+
+    if english:
+        lines += ["", f"<tg-spoiler>➡️  {english}</tg-spoiler>"]
+
+    if questions:
+        lines += ["", "<b>أسئلة:</b>"]
+        for i, q in enumerate(questions, 1):
+            lines.append(f"{i}. {q}")
+
+    lines += ["", "─" * 28]
 
     return "\n".join(l for l in lines if l is not None)
