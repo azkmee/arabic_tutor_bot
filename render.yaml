@@ -1,0 +1,76 @@
+services:
+  - type: web
+    name: arabic-tutor-bot
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m bot.main
+    healthCheckPath: /health
+    envVars:
+      - key: MONGO_URI
+        sync: false
+      - key: TELEGRAM_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: WEBHOOK_SECRET
+        generateValue: true
+      - key: TRIGGER_SECRET
+        generateValue: true
+      - key: RENDER_EXTERNAL_URL
+        fromService:
+          name: arabic-tutor-bot
+          type: web
+          property: url
+
+cron:
+  # Morning review: 9AM SGT = 01:00 UTC
+  - name: morning-review
+    schedule: "0 1 * * *"
+    buildCommand: echo "trigger only"
+    startCommand: "curl -s \"$RENDER_EXTERNAL_URL/trigger/morning?secret=$TRIGGER_SECRET\""
+    envVars:
+      - key: RENDER_EXTERNAL_URL
+        fromService:
+          name: arabic-tutor-bot
+          type: web
+          property: url
+      - key: TRIGGER_SECRET
+        fromService:
+          name: arabic-tutor-bot
+          type: web
+          envVarKey: TRIGGER_SECRET
+
+  # Lunch review: 1PM SGT = 05:00 UTC
+  - name: lunch-review
+    schedule: "0 5 * * *"
+    buildCommand: echo "trigger only"
+    startCommand: "curl -s \"$RENDER_EXTERNAL_URL/trigger/lunch?secret=$TRIGGER_SECRET\""
+    envVars:
+      - key: RENDER_EXTERNAL_URL
+        fromService:
+          name: arabic-tutor-bot
+          type: web
+          property: url
+      - key: TRIGGER_SECRET
+        fromService:
+          name: arabic-tutor-bot
+          type: web
+          envVarKey: TRIGGER_SECRET
+
+  # Dinner review: 8PM SGT = 12:00 UTC
+  - name: dinner-review
+    schedule: "0 12 * * *"
+    buildCommand: echo "trigger only"
+    startCommand: "curl -s \"$RENDER_EXTERNAL_URL/trigger/dinner?secret=$TRIGGER_SECRET\""
+    envVars:
+      - key: RENDER_EXTERNAL_URL
+        fromService:
+          name: arabic-tutor-bot
+          type: web
+          property: url
+      - key: TRIGGER_SECRET
+        fromService:
+          name: arabic-tutor-bot
+          type: web
+          envVarKey: TRIGGER_SECRET

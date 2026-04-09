@@ -80,33 +80,51 @@ Copy `.env.example` to `.env` and fill in:
 | `TELEGRAM_TOKEN` | Token from @BotFather |
 | `TELEGRAM_CHAT_ID` | Your personal chat ID |
 
-### 2. Oracle Cloud VM Deployment
+### 2. Deploy to Render.com (Recommended)
+
+1. Push this repo to GitHub
+2. Go to [dashboard.render.com](https://dashboard.render.com) → **New → Blueprint**
+3. Connect your GitHub repo and select it
+4. Render reads `render.yaml` and creates:
+   - A **web service** (webhook handler for Telegram)
+   - **3 cron jobs** (morning/lunch/dinner review triggers)
+5. Set environment variables in the Render dashboard:
+   - `MONGO_URI` — your MongoDB Atlas connection string
+   - `TELEGRAM_TOKEN` — from @BotFather
+   - `TELEGRAM_CHAT_ID` — your chat ID
+   - `WEBHOOK_SECRET` and `TRIGGER_SECRET` are auto-generated
+
+The bot uses **webhooks** (not polling) — Telegram sends messages to your Render URL. The service wakes up on each message and handles it instantly. Cron jobs trigger scheduled reviews by hitting `/trigger/morning`, `/trigger/lunch`, `/trigger/dinner` endpoints.
+
+#### Running locally
+
+For local development, the bot falls back to **polling mode** when `RENDER_EXTERNAL_URL` is not set:
 
 ```bash
-# SSH into your Oracle Cloud Always Free ARM instance
-ssh opc@<your-vm-ip>
-
-# Clone and set up
-git clone <repo-url> arabic_tutor_bot
-cd arabic_tutor_bot
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-
-# Configure
 cp .env.example .env
-nano .env  # fill in secrets
+nano .env  # fill in MONGO_URI, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID
+pip install -r requirements.txt
+python -m bot.main
+```
 
-# Install systemd service
+### 3. Alternative: Oracle Cloud VM
+
+```bash
+ssh opc@<your-vm-ip>
+git clone <repo-url> arabic_tutor_bot && cd arabic_tutor_bot
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env && nano .env
+
 sudo cp arabic-tutor.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now arabic-tutor
-
-# Verify
 sudo journalctl -u arabic-tutor -f
 ```
 
-### 3. Claude Desktop MCP Server
+Uses polling mode (no `RENDER_EXTERNAL_URL`). Scheduled reviews run via APScheduler in-process.
+
+### 4. Claude Desktop MCP Server
 
 Add to your Claude Desktop MCP config (`claude_desktop_config.json`):
 
