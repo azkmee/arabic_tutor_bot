@@ -17,11 +17,7 @@ services:
         generateValue: true
       - key: TRIGGER_SECRET
         generateValue: true
-      - key: RENDER_EXTERNAL_URL
-        fromService:
-          name: arabic-tutor-bot
-          type: web
-          property: url
+      # RENDER_EXTERNAL_URL is auto-injected by Render for web services
 
   # Morning review: 9AM SGT = 01:00 UTC
   - type: cron
@@ -33,10 +29,7 @@ services:
     startCommand: "curl -sf \"$RENDER_EXTERNAL_URL/trigger/morning?secret=$TRIGGER_SECRET\""
     envVars:
       - key: RENDER_EXTERNAL_URL
-        fromService:
-          name: arabic-tutor-bot
-          type: web
-          property: url
+        sync: false
       - key: TRIGGER_SECRET
         fromService:
           name: arabic-tutor-bot
@@ -53,10 +46,7 @@ services:
     startCommand: "curl -sf \"$RENDER_EXTERNAL_URL/trigger/lunch?secret=$TRIGGER_SECRET\""
     envVars:
       - key: RENDER_EXTERNAL_URL
-        fromService:
-          name: arabic-tutor-bot
-          type: web
-          property: url
+        sync: false
       - key: TRIGGER_SECRET
         fromService:
           name: arabic-tutor-bot
@@ -73,10 +63,7 @@ services:
     startCommand: "curl -sf \"$RENDER_EXTERNAL_URL/trigger/dinner?secret=$TRIGGER_SECRET\""
     envVars:
       - key: RENDER_EXTERNAL_URL
-        fromService:
-          name: arabic-tutor-bot
-          type: web
-          property: url
+        sync: false
       - key: TRIGGER_SECRET
         fromService:
           name: arabic-tutor-bot
