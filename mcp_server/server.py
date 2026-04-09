@@ -9,6 +9,9 @@ load_dotenv()
 
 MONGO_URI = os.environ["MONGO_URI"]
 
+VALID_TYPES = {"noun", "verb", "adjective", "adverb", "preposition", "particle", "phrase", "grammar_rule"}
+EASE_FACTOR_DEFAULT = 2.5
+
 _client = None
 _db = None
 
@@ -19,6 +22,14 @@ def get_db():
         _client = MongoClient(MONGO_URI)
         _db = _client["arabic_learning"]
     return _db
+
+
+def _serialize_dt(doc):
+    """Convert datetime fields to ISO strings for JSON serialization."""
+    for key in ("created_at", "last_reviewed_at", "processed_at", "last_shown_at"):
+        if key in doc and isinstance(doc[key], datetime):
+            doc[key] = doc[key].isoformat()
+    return doc
 
 
 mcp = FastMCP("arabic-tutor")
@@ -48,14 +59,17 @@ def get_pending_words() -> str:
 def add_words(words: list[dict]) -> str:
     """Add formatted vocabulary words to the database.
 
-    Each word dict should have:
-      - arabic (required): The Arabic word
+    Each word dict must have:
+      - arabic (required): The Arabic word (with tashkeel if possible)
       - transliteration: Romanized pronunciation
       - translation: English meaning
-      - type: "word", "grammar_rule", or "phrase"
-      - root: 3-letter Arabic root (optional)
-      - plural: Arabic plural form (optional)
-      - example_sentence: Arabic sentence using the word (optional)
+      - type: one of: noun, verb, adjective, adverb, preposition, particle, phrase, grammar_rule
+      - root: Arabic root (e.g. "ك ت ب"), optional
+      - plural: Arabic plural form, optional
+      - gender: "masculine" or "feminine", optional
+      - example_sentence: Arabic sentence using the word, optional
+      - example_translation: English translation of example, optional
+      - tags: list of tags (e.g. ["MSA", "beginner"]), optional
 
     Words are deduplicated against existing vocabulary.
     Corresponding item_progress entries are created automatically.
@@ -63,10 +77,16 @@ def add_words(words: list[dict]) -> str:
     """
     db = get_db()
 
-    # Validate required field
-    for w in words:
+    # Validate
+    errors = []
+    for i, w in enumerate(words):
         if "arabic" not in w:
-            return json.dumps({"error": "Each word must have an 'arabic' field"})
+            errors.append(f"Word {i}: missing 'arabic' field")
+        wtype = w.get("type", "noun")
+        if wtype not in VALID_TYPES:
+            errors.append(f"Word {i} ({w.get('arabic', '?')}): invalid type '{wtype}'. Must be one of: {', '.join(sorted(VALID_TYPES))}")
+    if errors:
+        return json.dumps({"errors": errors}, ensure_ascii=False, indent=2)
 
     # Check for existing words
     arabic_list = [w["arabic"] for w in words]
@@ -82,7 +102,7 @@ def add_words(words: list[dict]) -> str:
         now = datetime.now(timezone.utc)
 
         for word in new_words:
-            word.setdefault("type", "word")
+            word.setdefault("type", "noun")
             word.setdefault("created_at", now)
 
         db.vocabulary_items.insert_many(new_words)
@@ -92,19 +112,27 @@ def add_words(words: list[dict]) -> str:
                 "arabic": w["arabic"],
                 "srs_level": 0,
                 "next_review_at": today,
+                "ease_factor": EASE_FACTOR_DEFAULT,
                 "streak": 0,
+                "lapse_count": 0,
                 "last_test_type": "",
                 "weak_test_types": [],
+                "test_type_stats": {},
+                "last_reviewed_at": None,
+                "created_at": now,
             }
             for w in new_words
         ]
         db.item_progress.insert_many(progress_docs)
 
     # Mark matching raw_words as processed
-    db.raw_words.update_many(
-        {"text": {"$regex": "|".join(arabic_list)}, "status": "pending"},
-        {"$set": {"status": "processed"}},
-    )
+    if arabic_list:
+        now = datetime.now(timezone.utc)
+        for arabic in arabic_list:
+            db.raw_words.update_many(
+                {"text": {"$regex": arabic}, "status": "pending"},
+                {"$set": {"status": "processed", "processed_at": now, "vocabulary_item_arabic": arabic}},
+            )
 
     return json.dumps({
         "added": [w["arabic"] for w in new_words],
@@ -115,28 +143,31 @@ def add_words(words: list[dict]) -> str:
 
 
 @mcp.tool()
-def add_paragraphs(paragraphs: list[dict]) -> str:
-    """Add reading passages to the paragraphs collection.
+def add_passages(passages: list[dict]) -> str:
+    """Add reading passages to the passages collection.
 
-    Each paragraph dict should have:
-      - text_arabic: The Arabic paragraph text
-      - text_english: English translation
-      - words_used: List of Arabic words used in the paragraph
-      - difficulty: "short" or "long"
+    Each passage dict should have:
+      - text_arabic (required): The Arabic passage text
+      - title: Short title for display, optional
+      - text_english: English translation, optional
+      - words_used: List of Arabic words from vocabulary, optional
+      - comprehension_questions: List of Arabic questions, optional
+      - difficulty: "short" or "long" (default: "short")
     """
     db = get_db()
     now = datetime.now(timezone.utc)
 
-    for p in paragraphs:
+    for p in passages:
         p.setdefault("created_at", now)
         p.setdefault("difficulty", "short")
+        p.setdefault("last_shown_at", None)
+        p.setdefault("times_shown", 0)
 
-    db.passages.insert_many(paragraphs)
+    db.passages.insert_many(passages)
 
     return json.dumps({
-        "added_count": len(paragraphs),
-        "difficulties": [p.get("difficulty") for p in paragraphs],
-    })
+        "added_count": len(passages),
+    }, ensure_ascii=False)
 
 
 @mcp.tool()
@@ -149,8 +180,7 @@ def list_recent_words(limit: int = 20) -> str:
         .limit(limit)
     )
     for w in words:
-        if "created_at" in w and isinstance(w["created_at"], datetime):
-            w["created_at"] = w["created_at"].isoformat()
+        _serialize_dt(w)
     return json.dumps(words, ensure_ascii=False, indent=2)
 
 
@@ -167,8 +197,7 @@ def search_words(query: str) -> str:
         {"_id": 0},
     ).limit(20))
     for w in results:
-        if "created_at" in w and isinstance(w["created_at"], datetime):
-            w["created_at"] = w["created_at"].isoformat()
+        _serialize_dt(w)
     return json.dumps(results, ensure_ascii=False, indent=2)
 
 

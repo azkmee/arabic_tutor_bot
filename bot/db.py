@@ -1,6 +1,10 @@
 from datetime import date, datetime, timezone, timedelta
 from pymongo import MongoClient
-from bot.config import MONGO_URI, SRS_INTERVALS
+from bot.config import (
+    MONGO_URI, SRS_INTERVALS, VOCAB_TYPES, GRAMMAR_TYPES,
+    EASE_FACTOR_DEFAULT, EASE_FACTOR_MIN, EASE_FACTOR_MAX,
+    EASE_FACTOR_CORRECT, EASE_FACTOR_WRONG, LEECH_THRESHOLD,
+)
 
 _client = None
 _db = None
@@ -14,41 +18,7 @@ def get_db():
     return _db
 
 
-GRAMMAR_TYPES = {"grammar_rule", "grammar"}
-VOCAB_TYPES = {"noun", "verb", "adjective", "adverb", "word", "phrase", "preposition", "particle"}
-
-
-def get_due_items(item_type=None, limit=None):
-    """Get items due for review today, optionally filtered by type.
-
-    item_type can be:
-      - "word" — matches noun, verb, adjective, etc. (any non-grammar type)
-      - "grammar_rule" — matches grammar types
-      - None — no type filter
-    """
-    db = get_db()
-    today = date.today().isoformat()
-    query = {"next_review_at": {"$lte": today}}
-
-    if item_type:
-        if item_type == "word":
-            type_set = VOCAB_TYPES
-        elif item_type == "grammar_rule":
-            type_set = GRAMMAR_TYPES
-        else:
-            type_set = {item_type}
-
-        arabic_words = [
-            v["arabic"]
-            for v in db.vocabulary_items.find({"type": {"$in": list(type_set)}}, {"arabic": 1})
-        ]
-        query["arabic"] = {"$in": arabic_words}
-
-    cursor = db.item_progress.find(query)
-    if limit:
-        cursor = cursor.limit(limit)
-    return list(cursor)
-
+# ── Vocabulary Items ─────────────────────────────────────────────────────────
 
 def get_vocab_item(arabic):
     db = get_db()
@@ -79,6 +49,7 @@ def insert_new_words(words):
     now = datetime.now(timezone.utc)
 
     for word in new_words:
+        word.setdefault("type", "noun")
         word.setdefault("created_at", now)
 
     db.vocabulary_items.insert_many(new_words)
@@ -88,9 +59,14 @@ def insert_new_words(words):
             "arabic": w["arabic"],
             "srs_level": 0,
             "next_review_at": today,
+            "ease_factor": EASE_FACTOR_DEFAULT,
             "streak": 0,
+            "lapse_count": 0,
             "last_test_type": "",
             "weak_test_types": [],
+            "test_type_stats": {},
+            "last_reviewed_at": None,
+            "created_at": now,
         }
         for w in new_words
     ]
@@ -99,62 +75,151 @@ def insert_new_words(words):
     return len(new_words), len(existing)
 
 
-def update_progress(prog, correct, test_type):
+# ── Item Progress / SRS ──────────────────────────────────────────────────────
+
+def get_due_items(item_type=None, limit=None):
+    """Get items due for review today, optionally filtered by type.
+
+    item_type can be:
+      - "word" — matches all vocab types (noun, verb, adjective, etc.)
+      - "grammar_rule" — matches grammar types
+      - None — no type filter
+    """
+    db = get_db()
+    today = date.today().isoformat()
+    query = {"next_review_at": {"$lte": today}}
+
+    if item_type:
+        if item_type == "word":
+            type_set = VOCAB_TYPES
+        elif item_type == "grammar_rule":
+            type_set = GRAMMAR_TYPES
+        else:
+            type_set = {item_type}
+
+        arabic_words = [
+            v["arabic"]
+            for v in db.vocabulary_items.find({"type": {"$in": list(type_set)}}, {"arabic": 1})
+        ]
+        query["arabic"] = {"$in": arabic_words}
+
+    cursor = db.item_progress.find(query)
+    if limit:
+        cursor = cursor.limit(limit)
+    return list(cursor)
+
+
+def update_progress(prog, correct, test_type, session_type="on_demand"):
     """Update SRS progress after a review answer."""
     db = get_db()
     now = datetime.now(timezone.utc)
     today = date.today()
     cur_level = prog.get("srs_level", 0)
+    ease = prog.get("ease_factor", EASE_FACTOR_DEFAULT)
+
+    # Update per-test-type accuracy stats
+    stats = prog.get("test_type_stats", {})
+    if test_type not in stats:
+        stats[test_type] = {"correct": 0, "wrong": 0}
+    if correct:
+        stats[test_type]["correct"] += 1
+    else:
+        stats[test_type]["wrong"] += 1
 
     if correct:
         new_level = min(cur_level + 1, 8)
-        next_rev = (today + timedelta(days=SRS_INTERVALS[new_level])).isoformat()
+        # Apply ease factor to interval
+        base_interval = SRS_INTERVALS[new_level]
+        adjusted_interval = max(1, round(base_interval * ease / EASE_FACTOR_DEFAULT))
+        next_rev = (today + timedelta(days=adjusted_interval)).isoformat()
         new_streak = prog.get("streak", 0) + 1
+        new_ease = min(ease + EASE_FACTOR_CORRECT, EASE_FACTOR_MAX)
+
+        # Prune from weak_test_types after 2 consecutive correct
+        weak = prog.get("weak_test_types", [])
+        if test_type in weak and stats[test_type]["correct"] >= 2:
+            ct = stats[test_type]
+            # Remove if recent accuracy is good (at least 2 correct in a row)
+            if ct["correct"] > ct["wrong"]:
+                weak = [t for t in weak if t != test_type]
+
         db.item_progress.update_one(
             {"_id": prog["_id"]},
             {"$set": {
                 "srs_level": new_level,
                 "next_review_at": next_rev,
+                "ease_factor": new_ease,
                 "streak": new_streak,
                 "last_test_type": test_type,
+                "weak_test_types": weak,
+                "test_type_stats": stats,
+                "last_reviewed_at": now,
             }},
         )
     else:
         next_rev = (today + timedelta(days=1)).isoformat()
+        new_ease = max(ease + EASE_FACTOR_WRONG, EASE_FACTOR_MIN)
+        lapse_count = prog.get("lapse_count", 0) + 1
+
         weak = prog.get("weak_test_types", [])
         if test_type not in weak:
             weak.append(test_type)
+
         db.item_progress.update_one(
             {"_id": prog["_id"]},
             {"$set": {
                 "srs_level": 0,
                 "next_review_at": next_rev,
+                "ease_factor": new_ease,
                 "streak": 0,
+                "lapse_count": lapse_count,
                 "last_test_type": test_type,
                 "weak_test_types": weak,
+                "test_type_stats": stats,
+                "last_reviewed_at": now,
             }},
         )
 
-    log_recall(str(prog["_id"]), prog.get("arabic", ""), test_type, correct)
+    log_recall(
+        item_progress_id=str(prog["_id"]),
+        arabic=prog.get("arabic", ""),
+        test_type=test_type,
+        correct=correct,
+        session_type=session_type,
+        srs_level_before=cur_level,
+    )
 
 
-def log_recall(item_id, arabic, test_type, correct):
+def log_recall(item_progress_id, arabic, test_type, correct,
+               session_type="on_demand", srs_level_before=0):
     db = get_db()
     db.recall_log.insert_one({
-        "item_id": item_id,
+        "item_progress_id": item_progress_id,
         "arabic": arabic,
         "test_type": test_type,
         "correct": correct,
+        "quality": 4 if correct else 1,
+        "session_type": session_type,
+        "srs_level_before": srs_level_before,
         "reviewed_at": datetime.now(timezone.utc),
     })
 
+
+# ── Raw Words (staging) ─────────────────────────────────────────────────────
 
 def add_raw_words(texts, source="telegram"):
     """Add raw word entries to staging collection."""
     db = get_db()
     now = datetime.now(timezone.utc)
     docs = [
-        {"text": t, "source": source, "status": "pending", "created_at": now}
+        {
+            "text": t,
+            "source": source,
+            "status": "pending",
+            "created_at": now,
+            "processed_at": None,
+            "vocabulary_item_arabic": None,
+        }
         for t in texts
     ]
     db.raw_words.insert_many(docs)
@@ -166,31 +231,51 @@ def get_pending_raw_words():
     return list(db.raw_words.find({"status": "pending"}))
 
 
-def mark_raw_words_processed(ids):
+def mark_raw_words_processed(ids, vocabulary_arabic=None):
     db = get_db()
-    db.raw_words.update_many(
-        {"_id": {"$in": ids}},
-        {"$set": {"status": "processed"}},
-    )
+    update = {"$set": {
+        "status": "processed",
+        "processed_at": datetime.now(timezone.utc),
+    }}
+    if vocabulary_arabic:
+        update["$set"]["vocabulary_item_arabic"] = vocabulary_arabic
+    db.raw_words.update_many({"_id": {"$in": ids}}, update)
 
 
-def add_paragraphs(paragraphs):
-    """Insert paragraph documents for reading exercises."""
+# ── Passages ─────────────────────────────────────────────────────────────────
+
+def add_passages(passages):
+    """Insert passage documents for reading exercises."""
     db = get_db()
     now = datetime.now(timezone.utc)
-    for p in paragraphs:
+    for p in passages:
         p.setdefault("created_at", now)
-    db.passages.insert_many(paragraphs)
-    return len(paragraphs)
+        p.setdefault("difficulty", "short")
+        p.setdefault("last_shown_at", None)
+        p.setdefault("times_shown", 0)
+    db.passages.insert_many(passages)
+    return len(passages)
 
 
-def get_paragraphs(difficulty=None, limit=1):
+def get_passages(difficulty=None, limit=1):
+    """Get least-recently-shown passages."""
     db = get_db()
     query = {}
     if difficulty:
         query["difficulty"] = difficulty
-    return list(db.passages.find(query).limit(limit))
+    # Prefer passages not yet shown, then least recently shown
+    return list(db.passages.find(query).sort("last_shown_at", 1).limit(limit))
 
+
+def mark_passage_shown(passage_id):
+    db = get_db()
+    db.passages.update_one(
+        {"_id": passage_id},
+        {"$set": {"last_shown_at": datetime.now(timezone.utc)}, "$inc": {"times_shown": 1}},
+    )
+
+
+# ── Stats ────────────────────────────────────────────────────────────────────
 
 def get_stats():
     """Get learning stats for /status command."""
@@ -199,10 +284,12 @@ def get_stats():
     total_words = db.vocabulary_items.count_documents({})
     total_due = db.item_progress.count_documents({"next_review_at": {"$lte": today}})
     mastered = db.item_progress.count_documents({"srs_level": {"$gte": 7}})
+    leeches = db.item_progress.count_documents({"lapse_count": {"$gte": LEECH_THRESHOLD}})
     pending_raw = db.raw_words.count_documents({"status": "pending"})
     return {
         "total_words": total_words,
         "due_today": total_due,
         "mastered": mastered,
+        "leeches": leeches,
         "pending_raw": pending_raw,
     }
