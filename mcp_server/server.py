@@ -131,7 +131,7 @@ def add_paragraphs(paragraphs: list[dict]) -> str:
         p.setdefault("created_at", now)
         p.setdefault("difficulty", "short")
 
-    db.paragraphs.insert_many(paragraphs)
+    db.passages.insert_many(paragraphs)
 
     return json.dumps({
         "added_count": len(paragraphs),

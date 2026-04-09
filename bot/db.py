@@ -14,17 +14,33 @@ def get_db():
     return _db
 
 
+GRAMMAR_TYPES = {"grammar_rule", "grammar"}
+VOCAB_TYPES = {"noun", "verb", "adjective", "adverb", "word", "phrase", "preposition", "particle"}
+
+
 def get_due_items(item_type=None, limit=None):
-    """Get items due for review today, optionally filtered by type."""
+    """Get items due for review today, optionally filtered by type.
+
+    item_type can be:
+      - "word" — matches noun, verb, adjective, etc. (any non-grammar type)
+      - "grammar_rule" — matches grammar types
+      - None — no type filter
+    """
     db = get_db()
     today = date.today().isoformat()
     query = {"next_review_at": {"$lte": today}}
 
     if item_type:
-        # Join with vocabulary_items to filter by type
+        if item_type == "word":
+            type_set = VOCAB_TYPES
+        elif item_type == "grammar_rule":
+            type_set = GRAMMAR_TYPES
+        else:
+            type_set = {item_type}
+
         arabic_words = [
             v["arabic"]
-            for v in db.vocabulary_items.find({"type": item_type}, {"arabic": 1})
+            for v in db.vocabulary_items.find({"type": {"$in": list(type_set)}}, {"arabic": 1})
         ]
         query["arabic"] = {"$in": arabic_words}
 
@@ -164,7 +180,7 @@ def add_paragraphs(paragraphs):
     now = datetime.now(timezone.utc)
     for p in paragraphs:
         p.setdefault("created_at", now)
-    db.paragraphs.insert_many(paragraphs)
+    db.passages.insert_many(paragraphs)
     return len(paragraphs)
 
 
@@ -173,7 +189,7 @@ def get_paragraphs(difficulty=None, limit=1):
     query = {}
     if difficulty:
         query["difficulty"] = difficulty
-    return list(db.paragraphs.find(query).limit(limit))
+    return list(db.passages.find(query).limit(limit))
 
 
 def get_stats():

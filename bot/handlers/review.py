@@ -29,7 +29,7 @@ async def send_review_session(context, session_type="morning"):
 
     if not all_items:
         # Try to send a paragraph even if no vocab/grammar due
-        difficulty = "long" if session_type == "dinner" else "short"
+        difficulty = None  # fetch any available passage
         paragraphs = db.get_paragraphs(difficulty=difficulty, limit=1)
         if paragraphs:
             card_text = build_paragraph_card(paragraphs[0])
@@ -95,7 +95,7 @@ async def send_review_session(context, session_type="morning"):
         )
 
     # Send paragraph card at the end
-    difficulty = "long" if session_type == "dinner" else "short"
+    difficulty = None  # fetch any available passage
     paragraphs = db.get_paragraphs(difficulty=difficulty, limit=1)
     if paragraphs:
         card_text = build_paragraph_card(paragraphs[0])

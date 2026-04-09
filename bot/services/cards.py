@@ -100,24 +100,34 @@ def build_card(item, prog):
 
 def build_paragraph_card(paragraph):
     """Build a reading comprehension card from a paragraph document."""
-    arabic = paragraph.get("text_arabic", "")
+    # Support both field naming conventions
+    arabic = paragraph.get("arabic_text") or paragraph.get("text_arabic", "")
     english = paragraph.get("text_english", "")
-    words = paragraph.get("words_used", [])
+    title = paragraph.get("title", "")
+    questions = paragraph.get("comprehension_questions", [])
     difficulty = paragraph.get("difficulty", "short")
 
-    label = "📖 Reading Comprehension" if difficulty == "short" else "📖 Extended Reading"
+    label = "📖 Reading Comprehension"
     lines = [
         "<b>مراجعة يومية</b> — Daily Review",
         "─" * 28,
         label,
         "",
-        arabic,
-        "",
-        f"<tg-spoiler>➡️  {english}</tg-spoiler>",
-        "<i>Tap to reveal translation, then rate:</i>",
-        "",
-        "─" * 28,
-        f"Words used: {', '.join(words)}" if words else "",
+    ]
+    if title:
+        lines.append(f"<b>{title}</b>")
+        lines.append("")
+    lines.append(arabic)
+
+    if english:
+        lines += ["", f"<tg-spoiler>➡️  {english}</tg-spoiler>"]
+
+    if questions:
+        lines += ["", "<b>أسئلة:</b>"]
+        for i, q in enumerate(questions, 1):
+            lines.append(f"{i}. {q}")
+
+    lines += ["", "─" * 28]
     ]
 
     return "\n".join(l for l in lines if l is not None)
