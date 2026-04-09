@@ -106,16 +106,16 @@ def _run_webhook(app):
             allowed_updates=["message", "callback_query"],
         )
 
-        # Start the update processor
-        async with app.update_queue:
-            config = uvicorn.Config(
-                starlette_app, host="0.0.0.0", port=PORT, log_level="info"
-            )
-            server = uvicorn.Server(config)
+        # Run uvicorn server
+        config = uvicorn.Config(
+            starlette_app, host="0.0.0.0", port=PORT, log_level="info"
+        )
+        server = uvicorn.Server(config)
+        try:
             await server.serve()
-
-        await app.stop()
-        await app.shutdown()
+        finally:
+            await app.stop()
+            await app.shutdown()
 
     asyncio.run(run())
 
