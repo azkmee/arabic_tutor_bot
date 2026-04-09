@@ -23,12 +23,14 @@ services:
           type: web
           property: url
 
-cron:
   # Morning review: 9AM SGT = 01:00 UTC
-  - name: morning-review
+  - type: cron
+    name: morning-review
+    runtime: image
+    image:
+      url: curlimages/curl:latest
     schedule: "0 1 * * *"
-    buildCommand: echo "trigger only"
-    startCommand: "curl -s \"$RENDER_EXTERNAL_URL/trigger/morning?secret=$TRIGGER_SECRET\""
+    startCommand: "curl -sf \"$RENDER_EXTERNAL_URL/trigger/morning?secret=$TRIGGER_SECRET\""
     envVars:
       - key: RENDER_EXTERNAL_URL
         fromService:
@@ -42,10 +44,13 @@ cron:
           envVarKey: TRIGGER_SECRET
 
   # Lunch review: 1PM SGT = 05:00 UTC
-  - name: lunch-review
+  - type: cron
+    name: lunch-review
+    runtime: image
+    image:
+      url: curlimages/curl:latest
     schedule: "0 5 * * *"
-    buildCommand: echo "trigger only"
-    startCommand: "curl -s \"$RENDER_EXTERNAL_URL/trigger/lunch?secret=$TRIGGER_SECRET\""
+    startCommand: "curl -sf \"$RENDER_EXTERNAL_URL/trigger/lunch?secret=$TRIGGER_SECRET\""
     envVars:
       - key: RENDER_EXTERNAL_URL
         fromService:
@@ -59,10 +64,13 @@ cron:
           envVarKey: TRIGGER_SECRET
 
   # Dinner review: 8PM SGT = 12:00 UTC
-  - name: dinner-review
+  - type: cron
+    name: dinner-review
+    runtime: image
+    image:
+      url: curlimages/curl:latest
     schedule: "0 12 * * *"
-    buildCommand: echo "trigger only"
-    startCommand: "curl -s \"$RENDER_EXTERNAL_URL/trigger/dinner?secret=$TRIGGER_SECRET\""
+    startCommand: "curl -sf \"$RENDER_EXTERNAL_URL/trigger/dinner?secret=$TRIGGER_SECRET\""
     envVars:
       - key: RENDER_EXTERNAL_URL
         fromService:
