@@ -20,6 +20,11 @@ async def send_review_session(context, session_type="morning"):
     grammar_due = db.get_due_items(item_type="grammar_rule", limit=REVIEW_SESSION["grammar"])
 
     all_items = vocab_due + grammar_due
+
+    # Fallback: if type-filtered queries return nothing, try without type filter
+    if not all_items:
+        all_items = db.get_due_items(limit=REVIEW_SESSION["vocab"] + REVIEW_SESSION["grammar"])
+
     total_due_count = len(db.get_due_items())
 
     if not all_items:
