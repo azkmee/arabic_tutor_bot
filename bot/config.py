@@ -12,7 +12,10 @@ TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 # ── Render / Webhook ─────────────────────────────────────────────────────────
 PORT = int(os.environ.get("PORT", 10000))
 RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL", "")
-WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "")
+import re
+# Telegram only allows alphanumeric, underscore, hyphen (1-256 chars)
+_raw_webhook_secret = os.environ.get("WEBHOOK_SECRET", "")
+WEBHOOK_SECRET = re.sub(r"[^A-Za-z0-9_\-]", "", _raw_webhook_secret)[:256]
 TRIGGER_SECRET = os.environ.get("TRIGGER_SECRET", "")
 
 # ── SRS ──────────────────────────────────────────────────────────────────────
