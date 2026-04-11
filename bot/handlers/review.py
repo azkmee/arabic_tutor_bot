@@ -1,3 +1,4 @@
+import logging
 import random
 import uuid
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -6,6 +7,8 @@ from telegram.ext import ContextTypes
 from bot import db
 from bot.config import TELEGRAM_CHAT_ID, REVIEW_SESSION
 from bot.services.cards import build_card, build_paragraph_card
+
+logger = logging.getLogger(__name__)
 
 # Abbreviations for test types in callback data (to fit 64-byte limit)
 _TT_SHORT = {"meaning": "m", "plural": "p", "fill_blank": "f", "root_derive": "r", "grammar": "g"}
@@ -19,15 +22,18 @@ _ST_LONG = {v: k for k, v in _ST_SHORT.items()}
 async def send_review_session(context, session_type="morning"):
     """Send a mixed review session: 5 vocab + 2 grammar + 1 sentence."""
     chat_id = TELEGRAM_CHAT_ID
+    logger.info(f"send_review_session started: session_type={session_type}, chat_id={chat_id}")
 
     vocab_due = db.get_due_items(item_type="word", limit=REVIEW_SESSION["vocab"])
     grammar_due = db.get_due_items(item_type="grammar_rule", limit=REVIEW_SESSION["grammar"])
 
     all_items = vocab_due + grammar_due
+    logger.info(f"Due items: {len(vocab_due)} vocab, {len(grammar_due)} grammar")
 
     # Fallback: if type-filtered queries return nothing, try without type filter
     if not all_items:
         all_items = db.get_due_items(limit=REVIEW_SESSION["vocab"] + REVIEW_SESSION["grammar"])
+        logger.info(f"Fallback query returned {len(all_items)} items")
 
     total_due_count = len(db.get_due_items())
 

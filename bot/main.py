@@ -72,7 +72,14 @@ def _run_webhook(app):
         class _Ctx:
             bot = app.bot
             bot_data = app.bot_data
-        await send_review_session(_Ctx(), session_type=session_type)
+
+        logger.info(f"Cron trigger received: {session_type}")
+        try:
+            await send_review_session(_Ctx(), session_type=session_type)
+            logger.info(f"Cron trigger completed: {session_type}")
+        except Exception as exc:
+            logger.error(f"Cron trigger failed ({session_type}): {exc}", exc_info=True)
+            return PlainTextResponse(f"Error: {exc}", status_code=500)
         return PlainTextResponse(f"OK: {session_type} review sent")
 
     async def trigger_morning(request):
