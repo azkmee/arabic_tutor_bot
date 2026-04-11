@@ -19,53 +19,5 @@ services:
         generateValue: true
       # RENDER_EXTERNAL_URL is auto-injected by Render for web services
 
-  # Morning review: 9AM SGT = 01:00 UTC
-  - type: cron
-    name: morning-review
-    runtime: image
-    image:
-      url: curlimages/curl:latest
-    schedule: "0 1 * * *"
-    startCommand: "curl -sf \"$RENDER_EXTERNAL_URL/trigger/morning?secret=$TRIGGER_SECRET\""
-    envVars:
-      - key: RENDER_EXTERNAL_URL
-        sync: false
-      - key: TRIGGER_SECRET
-        fromService:
-          name: arabic-tutor-bot
-          type: web
-          envVarKey: TRIGGER_SECRET
-
-  # Lunch review: 1PM SGT = 05:00 UTC
-  - type: cron
-    name: lunch-review
-    runtime: image
-    image:
-      url: curlimages/curl:latest
-    schedule: "0 5 * * *"
-    startCommand: "curl -sf \"$RENDER_EXTERNAL_URL/trigger/lunch?secret=$TRIGGER_SECRET\""
-    envVars:
-      - key: RENDER_EXTERNAL_URL
-        sync: false
-      - key: TRIGGER_SECRET
-        fromService:
-          name: arabic-tutor-bot
-          type: web
-          envVarKey: TRIGGER_SECRET
-
-  # Dinner review: 8PM SGT = 12:00 UTC
-  - type: cron
-    name: dinner-review
-    runtime: image
-    image:
-      url: curlimages/curl:latest
-    schedule: "0 12 * * *"
-    startCommand: "curl -sf \"$RENDER_EXTERNAL_URL/trigger/dinner?secret=$TRIGGER_SECRET\""
-    envVars:
-      - key: RENDER_EXTERNAL_URL
-        sync: false
-      - key: TRIGGER_SECRET
-        fromService:
-          name: arabic-tutor-bot
-          type: web
-          envVarKey: TRIGGER_SECRET
+  # Scheduling is handled by GitHub Actions (.github/workflows/scheduled-reviews.yml).
+  # The workflow hits /trigger/morning|lunch|dinner on the web service above.

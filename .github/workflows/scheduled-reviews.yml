@@ -1,0 +1,63 @@
+name: Scheduled Reviews
+
+on:
+  schedule:
+    - cron: "0 1 * * *"   # Morning: 9 AM SGT (01:00 UTC)
+    - cron: "0 5 * * *"   # Lunch:   1 PM SGT (05:00 UTC)
+    - cron: "0 12 * * *"  # Dinner:  8 PM SGT (12:00 UTC)
+  workflow_dispatch:
+    inputs:
+      session:
+        description: "Session type"
+        required: true
+        default: "morning"
+        type: choice
+        options:
+          - morning
+          - lunch
+          - dinner
+
+jobs:
+  send-review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine session type
+        id: session
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "type=${{ inputs.session }}" >> "$GITHUB_OUTPUT"
+          else
+            HOUR=$(date -u +%H)
+            case $HOUR in
+              01) echo "type=morning" >> "$GITHUB_OUTPUT" ;;
+              05) echo "type=lunch"   >> "$GITHUB_OUTPUT" ;;
+              12) echo "type=dinner"  >> "$GITHUB_OUTPUT" ;;
+              *)  echo "type=morning" >> "$GITHUB_OUTPUT" ;;
+            esac
+          fi
+
+      - name: Wake up Render service
+        # Render free tier sleeps after 15 min of inactivity; the cron runs
+        # once per day so the service is always cold.  Hit /health first with
+        # generous retries so the service has time to boot before we send the
+        # real trigger request.
+        run: |
+          echo "Pinging /health to wake service (session: ${{ steps.session.outputs.type }})..."
+          curl -sf \
+            --max-time 90 \
+            --retry 6 \
+            --retry-delay 15 \
+            --retry-connrefused \
+            --retry-all-errors \
+            "${{ secrets.RENDER_EXTERNAL_URL }}/health"
+
+      - name: Trigger review session
+        run: |
+          echo "Triggering ${{ steps.session.outputs.type }} review..."
+          curl -sf \
+            --max-time 90 \
+            --retry 3 \
+            --retry-delay 10 \
+            --retry-connrefused \
+            "${{ secrets.RENDER_EXTERNAL_URL }}/trigger/${{ steps.session.outputs.type }}?secret=${{ secrets.TRIGGER_SECRET }}"
+          echo "Done."
