@@ -1,38 +1,49 @@
 # Arabic Tutor — Telegram SRS Bot
 
-A spaced repetition Telegram bot for learning Arabic vocabulary, grammar, and reading comprehension. Runs as a long-running process on Oracle Cloud Free Tier VM with 3x daily scheduled reviews.
+A spaced repetition Telegram bot for learning Arabic vocabulary, grammar, and reading comprehension. Three daily scheduled reviews; each one pings you in Telegram with a button that opens a Mini App for swipe-to-rate flashcards and tap-to-translate passages.
 
 ## Architecture
 
 ```
-┌─────────────────┐     ┌──────────────────────┐
-│  Claude Desktop  │     │  Oracle Cloud VM      │
-│  + MCP Server    │────▶│  Telegram Bot (24/7)  │
-│  (add words +    │     │  + 3x Daily Reviews   │
-│   gen sentences) │     │  + /add command        │
-└─────────────────┘     └──────────┬───────────┘
-                                   │
-                          ┌────────▼────────┐
-                          │  MongoDB Atlas   │
-                          └─────────────────┘
+┌────────────────┐    ┌──────────────────────┐    ┌────────────────────┐
+│ Claude Desktop │    │  Render web service  │    │  GitHub Pages       │
+│ + MCP Server   │───▶│  Telegram bot +      │◀──▶│  React Mini App     │
+│ (add words +   │    │  /api/* JSON API     │    │  (cards + passages) │
+│  gen passages) │    │  + cron triggers     │    └────────────────────┘
+└────────────────┘    └──────────┬───────────┘             ▲
+                                 │                          │
+                        ┌────────▼────────┐    Telegram WebApp button
+                        │  MongoDB Atlas   │    opens this URL
+                        └─────────────────┘
 ```
 
 ## Files
 
 ```
 bot/
-  main.py              # Entry point
+  main.py              # Entry point (Telegram + Starlette routes)
+  api.py               # /api/* JSON endpoints for the Mini App
   config.py            # Environment config, constants, schedules
   db.py                # All MongoDB operations
   handlers/
-    review.py          # Review cards + callback buttons
+    review.py          # send_webapp_notification + /review fallback
     add_words.py       # /add command (queues to raw_words)
     commands.py        # /status, /help
   services/
-    cards.py           # Card message builder
+    cards.py           # Card message builder (Telegram text fallback)
     srs.py             # SRS update logic
   jobs/
     scheduled_reviews.py  # 3x daily scheduled jobs
+webapp/                # React + Vite Mini App (hosted on GitHub Pages)
+  src/
+    App.tsx              # Session loader + stage routing
+    screens/
+      CardScreen.tsx     # Tap to flip, swipe to rate
+      PassageScreen.tsx  # Tap-to-translate, add-to-recall
+      SummaryScreen.tsx  # Session stats
+    lib/
+      api.ts             # Auth + JSON client for /api/*
+      telegram.ts        # Telegram WebApp helpers
 mcp_server/
   server.py            # MCP server for Claude Desktop
 arabic-tutor.service   # systemd unit file
@@ -42,10 +53,12 @@ arabic-tutor.service   # systemd unit file
 
 | Command | Description |
 |---|---|
-| `/review` | Start an on-demand review session |
+| `/review` | Text-mode review fallback — one message per card |
 | `/add كلمة [meaning]` | Queue a word for processing |
 | `/status` | View learning stats |
 | `/help` | Show available commands |
+
+The primary review path is the **Mini App**: scheduled notifications include a "Start Review" button that opens the React app inline in Telegram. The `/review` text command is kept as a fallback for when the WebApp isn't available.
 
 ## Scheduled Reviews
 
@@ -92,6 +105,8 @@ Copy `.env.example` to `.env` and fill in:
    - `MONGO_URI` — your MongoDB Atlas connection string
    - `TELEGRAM_TOKEN` — from @BotFather
    - `TELEGRAM_CHAT_ID` — your chat ID
+   - `WEB_APP_URL` — your GitHub Pages URL, e.g. `https://<user>.github.io/arabic_tutor_bot/` (leave blank to fall back to the message-per-card flow)
+   - `WEB_APP_ORIGIN` — `https://<user>.github.io` (origin only, no path) for CORS
    - `WEBHOOK_SECRET` and `TRIGGER_SECRET` are auto-generated
 
 The bot uses **webhooks** (not polling) — Telegram sends messages to your Render URL. The service wakes up on each message and handles it instantly. Cron jobs trigger scheduled reviews by hitting `/trigger/morning`, `/trigger/lunch`, `/trigger/dinner` endpoints.
@@ -124,7 +139,29 @@ sudo journalctl -u arabic-tutor -f
 
 Uses polling mode (no `RENDER_EXTERNAL_URL`). Scheduled reviews run via APScheduler in-process.
 
-### 4. Claude Desktop MCP Server
+### 4. Mini App on GitHub Pages
+
+The frontend (`webapp/`) deploys to GitHub Pages via `.github/workflows/deploy-webapp.yml`:
+
+1. In the repo's **Settings → Pages**, set Source to "GitHub Actions".
+2. In **Settings → Secrets and variables → Actions**, add:
+   - `VITE_API_BASE` — your Render service URL (e.g. `https://arabic-tutor-bot.onrender.com`)
+3. Push to `main` (or run the workflow manually). The Mini App publishes to `https://<user>.github.io/<repo>/`.
+4. Set `WEB_APP_URL` in Render to that URL, and `WEB_APP_ORIGIN` to `https://<user>.github.io` for CORS.
+
+Local dev for the Mini App:
+
+```bash
+cd webapp
+cp .env.example .env
+# set VITE_API_BASE to the running bot's URL (or a tunnel like ngrok)
+npm install
+npm run dev
+```
+
+Telegram only allows `https://` URLs in WebApp buttons, so to test locally you need a tunnel (ngrok, cloudflared, etc.) and a development bot.
+
+### 5. Claude Desktop MCP Server
 
 Add to your Claude Desktop MCP config (`claude_desktop_config.json`):
 

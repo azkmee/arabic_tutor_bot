@@ -7,7 +7,11 @@ from bot.config import (
     TELEGRAM_TOKEN, PORT, RENDER_EXTERNAL_URL,
     WEBHOOK_SECRET, TRIGGER_SECRET,
 )
-from bot.handlers.review import review_command, handle_callback, send_review_session
+from bot.handlers.review import (
+    review_command,
+    handle_callback,
+    send_webapp_notification,
+)
 from bot.handlers.add_words import add_command
 from bot.handlers.commands import status_command, help_command
 
@@ -42,8 +46,13 @@ def _run_webhook(app):
     """Run in webhook mode with custom Starlette app for extra routes."""
     import uvicorn
     from starlette.applications import Starlette
+    from starlette.middleware import Middleware
+    from starlette.middleware.cors import CORSMiddleware
     from starlette.responses import PlainTextResponse
     from starlette.routing import Route
+
+    from bot import api
+    from bot.config import WEB_APP_ORIGIN
 
     webhook_url = f"{RENDER_EXTERNAL_URL}/webhook"
     logger.info(f"Starting in webhook mode on port {PORT}")
@@ -75,7 +84,7 @@ def _run_webhook(app):
 
         logger.info(f"Cron trigger received: {session_type}")
         try:
-            await send_review_session(_Ctx(), session_type=session_type)
+            await send_webapp_notification(_Ctx(), session_type=session_type)
             logger.info(f"Cron trigger completed: {session_type}")
         except Exception as exc:
             logger.error(f"Cron trigger failed ({session_type}): {exc}", exc_info=True)
@@ -98,6 +107,22 @@ def _run_webhook(app):
             Route("/trigger/morning", trigger_morning),
             Route("/trigger/lunch", trigger_lunch),
             Route("/trigger/dinner", trigger_dinner),
+            # Mini App JSON API (consumed by the React frontend)
+            Route("/api/session", api.get_session, methods=["GET"]),
+            Route("/api/session/result", api.post_result, methods=["POST"]),
+            Route("/api/lookup", api.lookup_word, methods=["GET"]),
+            Route("/api/raw_words", api.post_raw_word, methods=["POST"]),
+            Route("/api/passage/shown", api.post_passage_shown, methods=["POST"]),
+            Route("/api/stats", api.get_stats, methods=["GET"]),
+        ],
+        middleware=[
+            Middleware(
+                CORSMiddleware,
+                allow_origins=[WEB_APP_ORIGIN] if WEB_APP_ORIGIN != "*" else ["*"],
+                allow_methods=["GET", "POST", "OPTIONS"],
+                allow_headers=["Content-Type", "X-Telegram-Init-Data"],
+                max_age=600,
+            ),
         ],
     )
 
