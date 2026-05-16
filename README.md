@@ -6,16 +6,24 @@ A spaced repetition Telegram bot for learning Arabic vocabulary, grammar, and re
 
 ```
 ┌────────────────┐    ┌──────────────────────┐    ┌────────────────────┐
-│ Claude Desktop │    │  Render web service  │    │  GitHub Pages       │
-│ + MCP Server   │───▶│  Telegram bot +      │◀──▶│  React Mini App     │
-│ (add words +   │    │  /api/* JSON API     │    │  (cards + passages) │
-│  gen passages) │    │  + cron triggers     │    └────────────────────┘
+│ Claude Desktop │    │  Render web service  │    │  GitHub Pages      │
+│ + MCP Server   │───▶│  Telegram bot +      │◀──▶│  React Mini App    │
+│ (add words +   │    │  /api/* JSON API     │    │  (cards + passages)│
+│  gen passages) │    │  + /trigger/* hooks  │    └────────────────────┘
 └────────────────┘    └──────────┬───────────┘             ▲
                                  │                          │
                         ┌────────▼────────┐    Telegram WebApp button
-                        │  MongoDB Atlas   │    opens this URL
+                        │  MongoDB Atlas  │    opens this URL
                         └─────────────────┘
+                                 ▲
+                                 │ POST /trigger/{morning,lunch,dinner}
+                        ┌────────┴──────────────┐
+                        │  GitHub Actions cron  │
+                        │  (3x daily scheduler) │
+                        └───────────────────────┘
 ```
+
+Scheduling lives in GitHub Actions (`.github/workflows/scheduled-reviews.yml`), not Render. The workflow wakes the Render free-tier service via `/health`, then POSTs to `/trigger/{session}` with `TRIGGER_SECRET`.
 
 ## Files
 
@@ -46,7 +54,11 @@ webapp/                # React + Vite Mini App (hosted on GitHub Pages)
       telegram.ts        # Telegram WebApp helpers
 mcp_server/
   server.py            # MCP server for Claude Desktop
-arabic-tutor.service   # systemd unit file
+.github/workflows/
+  scheduled-reviews.yml  # Cron → wakes Render + POSTs /trigger/{session}
+  deploy-webapp.yml      # Builds & publishes webapp/ to GitHub Pages
+render.yaml            # Render blueprint (single web service)
+arabic-tutor.service   # systemd unit file (Oracle Cloud VM alternative)
 ```
 
 ## Telegram Commands
@@ -98,9 +110,7 @@ Copy `.env.example` to `.env` and fill in:
 1. Push this repo to GitHub
 2. Go to [dashboard.render.com](https://dashboard.render.com) → **New → Blueprint**
 3. Connect your GitHub repo and select it
-4. Render reads `render.yaml` and creates:
-   - A **web service** (webhook handler for Telegram)
-   - **3 cron jobs** (morning/lunch/dinner review triggers)
+4. Render reads `render.yaml` and creates a single **web service** (webhook handler for Telegram + `/api/*` for the Mini App + `/trigger/*` for scheduled reviews). Scheduling itself runs in **GitHub Actions** — see step 5.
 5. Set environment variables in the Render dashboard:
    - `MONGO_URI` — your MongoDB Atlas connection string
    - `TELEGRAM_TOKEN` — from @BotFather
@@ -109,7 +119,16 @@ Copy `.env.example` to `.env` and fill in:
    - `WEB_APP_ORIGIN` — `https://<user>.github.io` (origin only, no path) for CORS
    - `WEBHOOK_SECRET` and `TRIGGER_SECRET` are auto-generated
 
-The bot uses **webhooks** (not polling) — Telegram sends messages to your Render URL. The service wakes up on each message and handles it instantly. Cron jobs trigger scheduled reviews by hitting `/trigger/morning`, `/trigger/lunch`, `/trigger/dinner` endpoints.
+The bot uses **webhooks** (not polling) — Telegram sends messages to your Render URL. The service wakes up on each message and handles it instantly.
+
+#### Scheduled reviews via GitHub Actions
+
+`.github/workflows/scheduled-reviews.yml` runs 3x daily on UTC cron and POSTs to `/trigger/{morning,lunch,dinner}` on the Render service. In **Settings → Secrets and variables → Actions**, add:
+
+- `RENDER_EXTERNAL_URL` — full Render service URL (e.g. `https://arabic-tutor-bot.onrender.com`)
+- `TRIGGER_SECRET` — copy from the Render dashboard (must match what the bot reads)
+
+The workflow hits `/health` first (with retries) so the free-tier service has time to cold-start before the real trigger. You can also run any session on demand via the Actions tab → **Scheduled Reviews** → **Run workflow**.
 
 #### Running locally
 
