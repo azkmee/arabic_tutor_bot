@@ -17,6 +17,10 @@ services:
         generateValue: true
       - key: TRIGGER_SECRET
         generateValue: true
+      - key: WEB_APP_URL
+        sync: false
+      - key: WEB_APP_ORIGIN
+        sync: false
       # RENDER_EXTERNAL_URL is auto-injected by Render for web services
 
   # Scheduling is handled by GitHub Actions (.github/workflows/scheduled-reviews.yml).

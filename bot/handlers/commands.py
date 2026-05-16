@@ -25,18 +25,19 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "<b>📖 Arabic Tutor Bot — Commands</b>\n"
         "─" * 28 + "\n"
-        "/review — Start a review session now\n"
+        "/review — Text-mode review (fallback, one message per card)\n"
         "/add كلمة [meaning] — Queue a word for processing\n"
         "/status — View your learning stats\n"
         "/help — Show this message\n"
         "\n"
         "<b>Scheduled Reviews:</b>\n"
-        "🌅 Morning (9AM SGT) — 5 vocab + 2 grammar + 1 passage\n"
-        "🌞 Lunch (1PM SGT) — 5 vocab + 2 grammar + 1 passage\n"
-        "🌙 Dinner (8PM SGT) — 5 vocab + 2 grammar + 1 passage\n"
+        "🌅 Morning (9AM SGT), 🌞 Lunch (1PM SGT), 🌙 Dinner (8PM SGT)\n"
+        "Each notification has a <b>Start Review</b> button that opens the\n"
+        "Mini App for swipe-to-rate cards and tap-to-translate passages.\n"
         "\n"
         "<b>Adding Words:</b>\n"
         "• Via Telegram: /add كتاب book\n"
+        "• Via the Mini App: tap any word in a passage → Add to recall\n"
         "• Via Claude Desktop: Drop an image, Claude extracts + adds words",
         parse_mode="HTML",
     )

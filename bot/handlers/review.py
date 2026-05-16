@@ -1,11 +1,11 @@
 import logging
 import random
 import uuid
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import ContextTypes
 
 from bot import db
-from bot.config import TELEGRAM_CHAT_ID, REVIEW_SESSION
+from bot.config import TELEGRAM_CHAT_ID, REVIEW_SESSION, WEB_APP_URL
 from bot.services.cards import build_card, build_paragraph_card
 
 logger = logging.getLogger(__name__)
@@ -19,8 +19,56 @@ _ST_SHORT = {"morning": "am", "lunch": "ln", "dinner": "dn", "on_demand": "od"}
 _ST_LONG = {v: k for k, v in _ST_SHORT.items()}
 
 
+async def send_webapp_notification(context, session_type="morning"):
+    """Scheduled-trigger entrypoint: send a single notification with a
+    WebApp inline button that opens the Mini App. Falls back to the
+    message-per-card flow when WEB_APP_URL is unset."""
+    chat_id = TELEGRAM_CHAT_ID
+    logger.info(f"send_webapp_notification: session_type={session_type}")
+
+    if not WEB_APP_URL:
+        logger.info("WEB_APP_URL not configured; falling back to message-per-card flow")
+        await send_review_session(context, session_type=session_type)
+        return
+
+    total_due = len(db.get_due_items())
+    session_label = {
+        "morning": "🌅 Morning",
+        "lunch": "🌞 Lunch",
+        "dinner": "🌙 Dinner",
+    }.get(session_type, "📚")
+
+    if total_due == 0:
+        # Still surface the passage as a reading prompt
+        text = (
+            f"{session_label} <b>وقت القراءة</b> — Reading time!\n"
+            f"{'─' * 28}\n"
+            f"No flashcards due. Open the app for today's passage."
+        )
+    else:
+        text = (
+            f"{session_label} <b>وقت المراجعة</b> — Review time!\n"
+            f"{'─' * 28}\n"
+            f"<b>{total_due}</b> items due today.\n"
+            f"Tap below to start."
+        )
+
+    url = f"{WEB_APP_URL}?session_type={session_type}"
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📖 Start Review", web_app=WebAppInfo(url=url))]
+    ])
+
+    await context.bot.send_message(
+        chat_id=chat_id, text=text, parse_mode="HTML", reply_markup=keyboard
+    )
+
+
 async def send_review_session(context, session_type="morning"):
-    """Send a mixed review session: 5 vocab + 2 grammar + 1 sentence."""
+    """Send a mixed review session as Telegram messages (one card each).
+
+    Kept as the fallback when WEB_APP_URL isn't configured, and as the
+    behavior of the /review command for text-only review.
+    """
     chat_id = TELEGRAM_CHAT_ID
     logger.info(f"send_review_session started: session_type={session_type}, chat_id={chat_id}")
 
