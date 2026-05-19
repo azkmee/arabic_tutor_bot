@@ -166,6 +166,60 @@ html, body, #root {
   border: 1px solid var(--accent);
 }
 
+/* MCQ */
+.mcq-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+.mcq-option {
+  background: var(--card);
+  color: inherit;
+  text-align: center;
+  border: 1px solid rgba(127, 127, 127, 0.25);
+  font-size: 1.1em;
+  padding: 14px 16px;
+}
+.mcq-option.mcq-correct {
+  background: var(--good);
+  color: white;
+  border-color: var(--good);
+}
+.mcq-option.mcq-wrong {
+  background: var(--bad);
+  color: white;
+  border-color: var(--bad);
+}
+.mcq-option.mcq-dim { opacity: 0.55; }
+
+/* Passage — line-by-line */
+.passage-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.passage-line {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  cursor: pointer;
+}
+.passage-line:active { opacity: 0.85; }
+.passage-line .arabic-line {
+  font-size: 1.3em;
+  line-height: 1.9;
+  text-align: right;
+  direction: rtl;
+}
+.passage-line .english-line {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 0.95em;
+  border-top: 1px solid rgba(127, 127, 127, 0.15);
+  padding-top: 6px;
+}
+
 /* Passage */
 .passage-header {
   display: flex;

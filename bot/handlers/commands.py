@@ -15,7 +15,8 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📅 Due today: {stats['due_today']}\n"
         f"🏆 Mastered (level 7+): {stats['mastered']}\n"
         f"🩸 Leeches: {stats['leeches']}\n"
-        f"📝 Pending raw words: {stats['pending_raw']}",
+        f"📝 Pending raw words: {stats['pending_raw']}\n"
+        f"📖 Pending raw passages: {stats.get('pending_raw_passages', 0)}",
         parse_mode="HTML",
     )
 
@@ -27,6 +28,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "─" * 28 + "\n"
         "/review — Text-mode review (fallback, one message per card)\n"
         "/add كلمة [meaning] — Queue a word for processing\n"
+        "/add_passage &lt;text&gt; — Queue a passage for cowork to enrich\n"
         "/status — View your learning stats\n"
         "/help — Show this message\n"
         "\n"

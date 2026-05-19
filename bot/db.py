@@ -109,7 +109,38 @@ def get_due_items(item_type=None, limit=None):
     return list(cursor)
 
 
-def update_progress(prog, correct, test_type, session_type="on_demand"):
+def _bump_test_type_stats(stats, test_type, card_format, correct):
+    """Increment per-test-type, per-format accuracy counters.
+
+    Migrates legacy flat shape {correct, wrong} → {reveal: {correct, wrong}}
+    on first touch so old records keep their history.
+    """
+    entry = stats.get(test_type)
+    if entry is None:
+        entry = {}
+    elif "correct" in entry or "wrong" in entry:
+        legacy_correct = entry.get("correct", 0)
+        legacy_wrong = entry.get("wrong", 0)
+        entry = {"reveal": {"correct": legacy_correct, "wrong": legacy_wrong}}
+    fmt = entry.setdefault(card_format, {"correct": 0, "wrong": 0})
+    fmt["correct" if correct else "wrong"] += 1
+    stats[test_type] = entry
+    return entry
+
+
+def _stats_totals(entry):
+    """Sum counters across formats for backward-compat weighting in picker."""
+    if not entry:
+        return 0, 0
+    if "reveal" in entry or "mcq" in entry:
+        c = sum(v.get("correct", 0) for v in entry.values() if isinstance(v, dict))
+        w = sum(v.get("wrong", 0) for v in entry.values() if isinstance(v, dict))
+        return c, w
+    return entry.get("correct", 0), entry.get("wrong", 0)
+
+
+def update_progress(prog, correct, test_type, session_type="on_demand",
+                    card_format="reveal"):
     """Update SRS progress after a review answer."""
     db = get_db()
     now = datetime.now(timezone.utc)
@@ -117,14 +148,10 @@ def update_progress(prog, correct, test_type, session_type="on_demand"):
     cur_level = prog.get("srs_level", 0)
     ease = prog.get("ease_factor", EASE_FACTOR_DEFAULT)
 
-    # Update per-test-type accuracy stats
+    # Update per-test-type, per-format accuracy stats
     stats = prog.get("test_type_stats", {})
-    if test_type not in stats:
-        stats[test_type] = {"correct": 0, "wrong": 0}
-    if correct:
-        stats[test_type]["correct"] += 1
-    else:
-        stats[test_type]["wrong"] += 1
+    entry = _bump_test_type_stats(stats, test_type, card_format, correct)
+    fmt_counters = entry[card_format]
 
     if correct:
         new_level = min(cur_level + 1, 8)
@@ -137,10 +164,9 @@ def update_progress(prog, correct, test_type, session_type="on_demand"):
 
         # Prune from weak_test_types after 2 consecutive correct
         weak = prog.get("weak_test_types", [])
-        if test_type in weak and stats[test_type]["correct"] >= 2:
-            ct = stats[test_type]
-            # Remove if recent accuracy is good (at least 2 correct in a row)
-            if ct["correct"] > ct["wrong"]:
+        if test_type in weak and fmt_counters["correct"] >= 2:
+            # Remove if recent accuracy on this format is good
+            if fmt_counters["correct"] > fmt_counters["wrong"]:
                 weak = [t for t in weak if t != test_type]
 
         db.item_progress.update_one(
@@ -187,16 +213,19 @@ def update_progress(prog, correct, test_type, session_type="on_demand"):
         correct=correct,
         session_type=session_type,
         srs_level_before=cur_level,
+        card_format=card_format,
     )
 
 
 def log_recall(item_progress_id, arabic, test_type, correct,
-               session_type="on_demand", srs_level_before=0):
+               session_type="on_demand", srs_level_before=0,
+               card_format="reveal"):
     db = get_db()
     db.recall_log.insert_one({
         "item_progress_id": item_progress_id,
         "arabic": arabic,
         "test_type": test_type,
+        "card_format": card_format,
         "correct": correct,
         "quality": 4 if correct else 1,
         "session_type": session_type,
@@ -242,19 +271,151 @@ def mark_raw_words_processed(ids, vocabulary_arabic=None):
     db.raw_words.update_many({"_id": {"$in": ids}}, update)
 
 
+# ── Raw Passages (staging) ──────────────────────────────────────────────────
+
+def add_raw_passages(texts, source="telegram"):
+    """Add raw passage entries to staging collection."""
+    db = get_db()
+    now = datetime.now(timezone.utc)
+    docs = [
+        {
+            "text": t,
+            "source": source,
+            "status": "pending",
+            "created_at": now,
+            "processed_at": None,
+            "processed_passage_id": None,
+        }
+        for t in texts
+        if t and t.strip()
+    ]
+    if not docs:
+        return 0
+    db.raw_passages.insert_many(docs)
+    return len(docs)
+
+
+def get_pending_raw_passages():
+    db = get_db()
+    return list(db.raw_passages.find({"status": "pending"}))
+
+
+def mark_raw_passage_processed(raw_id, passage_id):
+    db = get_db()
+    db.raw_passages.update_one(
+        {"_id": raw_id},
+        {"$set": {
+            "status": "processed",
+            "processed_at": datetime.now(timezone.utc),
+            "processed_passage_id": passage_id,
+        }},
+    )
+
+
 # ── Passages ─────────────────────────────────────────────────────────────────
 
 def add_passages(passages):
-    """Insert passage documents for reading exercises."""
+    """Insert passage documents for reading exercises.
+
+    A passage may carry either the legacy `text_arabic` blob, the new
+    sentence array `lines: [{arabic, english, words: [{arabic, translation}]}]`,
+    or both. When `lines` is present and `words_used` is missing, derive it
+    from the per-token gloss. When `raw_passage_id` is present, flip the
+    matching `raw_passages` doc to `status="processed"` after insert.
+    """
     db = get_db()
     now = datetime.now(timezone.utc)
+    raw_links = []
     for p in passages:
         p.setdefault("created_at", now)
         p.setdefault("difficulty", "short")
         p.setdefault("last_shown_at", None)
         p.setdefault("times_shown", 0)
-    db.passages.insert_many(passages)
+        if p.get("lines") and not p.get("words_used"):
+            seen = []
+            for line in p["lines"]:
+                for w in line.get("words", []):
+                    ar = (w or {}).get("arabic")
+                    if ar and ar not in seen:
+                        seen.append(ar)
+            p["words_used"] = seen
+        raw_id = p.pop("raw_passage_id", None)
+        if raw_id is not None:
+            raw_links.append(raw_id)
+        else:
+            raw_links.append(None)
+    result = db.passages.insert_many(passages)
+    for raw_id, passage_id in zip(raw_links, result.inserted_ids):
+        if raw_id is not None:
+            mark_raw_passage_processed(raw_id, passage_id)
     return len(passages)
+
+
+def get_vocab_for_passage(limit=20):
+    """Source vocabulary for passage generation: due + weak + recent.
+
+    Returned items are full `vocabulary_items` docs joined with their
+    `item_progress` (when present), so cowork can pick words that need
+    practice. Sorted: due-soonest first, then weak, then most-recently-added.
+    """
+    db = get_db()
+    today = date.today().isoformat()
+    due = list(
+        db.item_progress.find({"next_review_at": {"$lte": today}})
+        .sort("next_review_at", 1)
+        .limit(limit)
+    )
+    seen = {p["arabic"] for p in due}
+    remaining = max(0, limit - len(due))
+    weak = []
+    if remaining:
+        weak = list(
+            db.item_progress.find({
+                "weak_test_types.0": {"$exists": True},
+                "arabic": {"$nin": list(seen)},
+            }).limit(remaining)
+        )
+        seen.update(p["arabic"] for p in weak)
+    remaining = max(0, limit - len(due) - len(weak))
+    recent_vocab = []
+    if remaining:
+        recent_vocab = list(
+            db.vocabulary_items.find({"arabic": {"$nin": list(seen)}})
+            .sort("created_at", -1)
+            .limit(remaining)
+        )
+    progresses = due + weak
+    arabic_to_prog = {p["arabic"]: p for p in progresses}
+    items = list(db.vocabulary_items.find(
+        {"arabic": {"$in": list(arabic_to_prog.keys())}}
+    ))
+    out = []
+    for v in items:
+        prog = arabic_to_prog.get(v["arabic"], {})
+        out.append({
+            "arabic": v.get("arabic", ""),
+            "transliteration": v.get("transliteration", ""),
+            "translation": v.get("translation", ""),
+            "type": v.get("type", ""),
+            "root": v.get("root", ""),
+            "plural": v.get("plural", ""),
+            "srs_level": prog.get("srs_level", 0),
+            "weak_test_types": prog.get("weak_test_types", []),
+            "reason": "due" if prog.get("next_review_at", "9999") <= today else "weak",
+        })
+    for v in recent_vocab:
+        out.append({
+            "arabic": v.get("arabic", ""),
+            "transliteration": v.get("transliteration", ""),
+            "translation": v.get("translation", ""),
+            "type": v.get("type", ""),
+            "root": v.get("root", ""),
+            "plural": v.get("plural", ""),
+            "srs_level": 0,
+            "weak_test_types": [],
+            "reason": "recent",
+        })
+    return out[:limit]
 
 
 def get_passages(difficulty=None, limit=1):
@@ -286,10 +447,12 @@ def get_stats():
     mastered = db.item_progress.count_documents({"srs_level": {"$gte": 7}})
     leeches = db.item_progress.count_documents({"lapse_count": {"$gte": LEECH_THRESHOLD}})
     pending_raw = db.raw_words.count_documents({"status": "pending"})
+    pending_raw_passages = db.raw_passages.count_documents({"status": "pending"})
     return {
         "total_words": total_words,
         "due_today": total_due,
         "mastered": mastered,
         "leeches": leeches,
         "pending_raw": pending_raw,
+        "pending_raw_passages": pending_raw_passages,
     }

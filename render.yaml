@@ -21,6 +21,8 @@ services:
         sync: false
       - key: WEB_APP_ORIGIN
         sync: false
+      - key: COWORK_SECRET
+        sync: false
       # RENDER_EXTERNAL_URL is auto-injected by Render for web services
 
   # Scheduling is handled by GitHub Actions (.github/workflows/scheduled-reviews.yml).

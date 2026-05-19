@@ -19,11 +19,18 @@ from starlette.responses import JSONResponse
 
 from bot import db
 from bot.config import (
+    COWORK_SECRET,
+    DEV_BYPASS_AUTH,
     REVIEW_SESSION,
     TELEGRAM_CHAT_ID,
     TELEGRAM_TOKEN,
 )
-from bot.services.cards import _pick_test_type
+from bot.services.cards import (
+    ANSWER_FIELD,
+    _pick_test_type,
+    build_mcq_options,
+    pick_format,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -75,11 +82,29 @@ def _json(data, status_code: int = 200) -> JSONResponse:
 
 def _authed(request):
     """Return (user_dict, error_response). Exactly one is None."""
+    if DEV_BYPASS_AUTH:
+        logger.warning("DEV_BYPASS_AUTH=1 — skipping initData verification")
+        return {"id": int(TELEGRAM_CHAT_ID)}, None
     init_data = request.headers.get("X-Telegram-Init-Data", "")
     user = _validate_init_data(init_data)
     if not user:
         return None, _json({"error": "unauthorized"}, status_code=401)
     return user, None
+
+
+def _authed_cowork(request):
+    """Auth for /api/cowork/*: requires X-Cowork-Token to match env secret.
+
+    Distinct from Telegram initData so the cowork routine can run from any
+    machine (including Claude Desktop on a remote box) without forging
+    Mini App init payloads. Returns error response, or None on success.
+    """
+    if not COWORK_SECRET:
+        return _json({"error": "cowork endpoints disabled"}, status_code=503)
+    token = request.headers.get("X-Cowork-Token", "")
+    if not hmac.compare_digest(token, COWORK_SECRET):
+        return _json({"error": "unauthorized"}, status_code=401)
+    return None
 
 
 # ── Endpoints ───────────────────────────────────────────────────────────────
@@ -115,6 +140,14 @@ async def get_session(request):
         if not item:
             continue
         test_type = _pick_test_type(item, prog)
+        card_format = pick_format(item, test_type)
+        options = []
+        if card_format == "mcq":
+            options, _correct = build_mcq_options(item, test_type)
+            if not options:
+                # Distractor list became invalid (e.g. empty correct answer)
+                # — fall back to reveal so the card still works.
+                card_format = "reveal"
         cards.append({
             "item_progress_id": str(prog["_id"]),
             "arabic": item.get("arabic", ""),
@@ -126,6 +159,8 @@ async def get_session(request):
             "example_sentence": item.get("example_sentence", ""),
             "example_translation": item.get("example_translation", ""),
             "test_type": test_type,
+            "format": card_format,
+            "options": options,
             "srs_level": prog.get("srs_level", 0),
             "streak": prog.get("streak", 0),
             "lapse_count": prog.get("lapse_count", 0),
@@ -140,6 +175,7 @@ async def get_session(request):
             "title": p.get("title", ""),
             "text_arabic": p.get("text_arabic") or p.get("arabic_text", ""),
             "text_english": p.get("text_english", ""),
+            "lines": p.get("lines", []),
             "words_used": p.get("words_used", []),
             "comprehension_questions": p.get("comprehension_questions", []),
             "difficulty": p.get("difficulty", "short"),
@@ -157,8 +193,16 @@ async def get_session(request):
 
 
 async def post_result(request):
-    """Record one card answer. Body: {item_progress_id, correct, test_type,
-    session_type}. Returns the new SRS state for the card."""
+    """Record one card answer.
+
+    Body: {item_progress_id, correct, test_type, session_type,
+    format?: "reveal"|"mcq", chosen?: str}.
+
+    For MCQ, the server ignores the client-supplied `correct` and re-derives
+    it by comparing `chosen` against the vocab item's answer field — this
+    keeps grading honest. Returns the new SRS state plus the actual
+    `correct` and `correct_answer` used.
+    """
     user, err = _authed(request)
     if err:
         return err
@@ -169,9 +213,11 @@ async def post_result(request):
         return _json({"error": "invalid json"}, status_code=400)
 
     item_id_str = body.get("item_progress_id")
-    correct = bool(body.get("correct"))
     test_type = body.get("test_type", "meaning")
     session_type = body.get("session_type", "on_demand")
+    card_format = body.get("format", "reveal")
+    if card_format not in ("reveal", "mcq"):
+        card_format = "reveal"
 
     if not item_id_str:
         return _json({"error": "missing item_progress_id"}, status_code=400)
@@ -185,11 +231,29 @@ async def post_result(request):
     if not prog:
         return _json({"error": "not found"}, status_code=404)
 
-    db.update_progress(prog, correct, test_type, session_type=session_type)
+    correct_answer = ""
+    if card_format == "mcq":
+        item = db.get_vocab_item(prog.get("arabic", ""))
+        if not item:
+            return _json({"error": "vocab item missing"}, status_code=404)
+        answer_field = ANSWER_FIELD.get(test_type, "translation")
+        correct_answer = (item.get(answer_field) or "").strip()
+        chosen = (body.get("chosen") or "").strip()
+        correct = bool(correct_answer) and chosen == correct_answer
+    else:
+        correct = bool(body.get("correct"))
+
+    db.update_progress(
+        prog, correct, test_type,
+        session_type=session_type,
+        card_format=card_format,
+    )
     updated = db.get_db().item_progress.find_one({"_id": oid})
 
     return _json({
         "ok": True,
+        "correct": correct,
+        "correct_answer": correct_answer if card_format == "mcq" else "",
         "srs_level": updated.get("srs_level", 0),
         "next_review_at": updated.get("next_review_at", ""),
         "streak": updated.get("streak", 0),
@@ -277,3 +341,111 @@ async def get_stats(request):
     if err:
         return err
     return _json(db.get_stats())
+
+
+async def post_raw_passage(request):
+    """Queue a passage into raw_passages for cowork to enrich.
+
+    Body: {text} or {texts: [...]}.
+    """
+    user, err = _authed(request)
+    if err:
+        return err
+
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        return _json({"error": "invalid json"}, status_code=400)
+
+    texts = body.get("texts")
+    if not texts:
+        single = (body.get("text") or "").strip()
+        if not single:
+            return _json({"error": "missing text"}, status_code=400)
+        texts = [single]
+
+    count = db.add_raw_passages(texts, source="webapp")
+    return _json({"ok": True, "queued": count})
+
+
+# ── Cowork (Claude Desktop routine) endpoints ──────────────────────────────
+
+
+async def cowork_post_vocabulary(request):
+    """Insert a batch of fully-enriched vocab items (cowork output).
+
+    Body: list of word dicts; same shape MCP add_words accepts, including
+    optional `mcq_options`. Dedupe by `arabic` happens inside the DB layer.
+    """
+    err = _authed_cowork(request)
+    if err:
+        return err
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        return _json({"error": "invalid json"}, status_code=400)
+    if not isinstance(body, list):
+        return _json({"error": "expected JSON array"}, status_code=400)
+    added, skipped = db.insert_new_words(body)
+    return _json({"ok": True, "added": added, "skipped_duplicates": skipped})
+
+
+async def cowork_post_passages(request):
+    """Insert a batch of enriched passages (cowork output).
+
+    Body: list of passage dicts with `lines` and optional `raw_passage_id`.
+    """
+    err = _authed_cowork(request)
+    if err:
+        return err
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        return _json({"error": "invalid json"}, status_code=400)
+    if not isinstance(body, list):
+        return _json({"error": "expected JSON array"}, status_code=400)
+
+    # raw_passage_id arrives as a string over JSON — coerce to ObjectId
+    for p in body:
+        rid = p.get("raw_passage_id")
+        if isinstance(rid, str):
+            try:
+                p["raw_passage_id"] = ObjectId(rid)
+            except Exception:
+                return _json(
+                    {"error": f"invalid raw_passage_id {rid!r}"}, status_code=400,
+                )
+
+    count = db.add_passages(body)
+    return _json({"ok": True, "added": count})
+
+
+async def cowork_get_vocab_for_passage(request):
+    """Return the cowork's source vocab list for drafting passages."""
+    err = _authed_cowork(request)
+    if err:
+        return err
+    try:
+        limit = int(request.query_params.get("limit", "20"))
+    except ValueError:
+        limit = 20
+    return _json({"items": db.get_vocab_for_passage(limit=limit)})
+
+
+async def cowork_get_raw_passages(request):
+    """Return pending raw_passages for cowork to enrich."""
+    err = _authed_cowork(request)
+    if err:
+        return err
+    docs = db.get_pending_raw_passages()
+    out = [
+        {
+            "id": str(d["_id"]),
+            "text": d.get("text", ""),
+            "source": d.get("source", ""),
+            "created_at": d["created_at"].isoformat()
+            if hasattr(d.get("created_at"), "isoformat") else str(d.get("created_at")),
+        }
+        for d in docs
+    ]
+    return _json({"items": out})

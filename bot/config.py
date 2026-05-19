@@ -17,6 +17,9 @@ RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL", "")
 _raw_webhook_secret = os.environ.get("WEBHOOK_SECRET", "")
 WEBHOOK_SECRET = re.sub(r"[^A-Za-z0-9_\-]", "", _raw_webhook_secret)[:256]
 TRIGGER_SECRET = os.environ.get("TRIGGER_SECRET", "")
+# Token required on /api/cowork/* — used by the Claude Desktop cowork routine
+# when submitting from off-laptop. Leave unset to disable those endpoints.
+COWORK_SECRET = os.environ.get("COWORK_SECRET", "")
 
 # ── Mini App (Telegram Web App) ──────────────────────────────────────────────
 # HTTPS URL where the React frontend is hosted (e.g. GitHub Pages).
@@ -26,6 +29,10 @@ WEB_APP_URL = os.environ.get("WEB_APP_URL", "")
 # CORS allow-origin for /api/* (the frontend's origin, e.g. https://user.github.io).
 # Defaults to "*" for easy local testing; set explicitly in production.
 WEB_APP_ORIGIN = os.environ.get("WEB_APP_ORIGIN", "*")
+# Dev-only: skip Telegram initData HMAC verification on /api/* and treat the
+# request as the configured TELEGRAM_CHAT_ID user. Never enable in production —
+# anyone hitting the API would have full single-user access.
+DEV_BYPASS_AUTH = os.environ.get("DEV_BYPASS_AUTH") == "1"
 
 # ── SRS ──────────────────────────────────────────────────────────────────────
 SRS_INTERVALS = {0: 0, 1: 1, 2: 3, 3: 7, 4: 14, 5: 30, 6: 60, 7: 90, 8: 180}
