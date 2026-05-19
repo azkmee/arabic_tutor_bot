@@ -19,10 +19,10 @@ export function App() {
   const [index, setIndex] = useState(0);
   const [tally, setTally] = useState<Tally>({ correct: 0, wrong: 0 });
 
-  useEffect(() => {
-    initTelegram();
-    const params = new URLSearchParams(window.location.search);
-    const sessionType = params.get("session_type") ?? "on_demand";
+  function loadSession(sessionType: string) {
+    setStage("loading");
+    setIndex(0);
+    setTally({ correct: 0, wrong: 0 });
     fetchSession(sessionType)
       .then((s) => {
         setSession(s);
@@ -32,6 +32,13 @@ export function App() {
         setError(e.message);
         setStage("error");
       });
+  }
+
+  useEffect(() => {
+    initTelegram();
+    const params = new URLSearchParams(window.location.search);
+    const sessionType = params.get("session_type") ?? "on_demand";
+    loadSession(sessionType);
   }, []);
 
   async function onSubmitCard(args: {
@@ -105,6 +112,7 @@ export function App() {
       tally={tally}
       sessionType={session.session_type}
       totalDue={session.total_due_today}
+      onReviewMore={() => loadSession("on_demand")}
     />
   );
 }

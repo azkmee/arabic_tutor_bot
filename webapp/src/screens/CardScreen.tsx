@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { motion, useMotionValue, useTransform } from "framer-motion";
+import { motion, useMotionValue, useTransform, animate } from "framer-motion";
 import { Card } from "../lib/api";
+import { haptic } from "../lib/telegram";
 
 interface SubmitResponse {
   correct: boolean;
@@ -101,6 +102,18 @@ function RevealCardScreen({ card, index, total, submit, onRated }: Props) {
     else x.set(0);
   }
 
+  function onCardTap() {
+    if (!revealed) {
+      haptic("light");
+      setRevealed(true);
+    } else {
+      haptic("medium");
+      animate(x, 300, { duration: 0.25, ease: "easeOut" }).then(() =>
+        next(true),
+      );
+    }
+  }
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === " " || e.key === "Enter") {
@@ -133,7 +146,7 @@ function RevealCardScreen({ card, index, total, submit, onRated }: Props) {
         dragConstraints={{ left: 0, right: 0 }}
         style={{ x, rotate, opacity }}
         onDragEnd={onDragEnd}
-        onClick={() => setRevealed(true)}
+        onClick={onCardTap}
         whileTap={{ scale: 0.99 }}
       >
         <div className="card-label">{TEST_TYPE_LABELS[card.test_type] ?? "💬 Review"}</div>
@@ -147,7 +160,7 @@ function RevealCardScreen({ card, index, total, submit, onRated }: Props) {
         {!revealed ? (
           <div className="hint">Tap or press space to reveal</div>
         ) : (
-          <div className="hint">← missed · got it →</div>
+          <div className="hint">Tap or → for ✅ · swipe or ← for missed</div>
         )}
       </motion.div>
 
