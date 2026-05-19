@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { motion, useMotionValue, useTransform } from "framer-motion";
+import { motion, useMotionValue, useTransform, animate } from "framer-motion";
 import { Card } from "../lib/api";
 import { haptic } from "../lib/telegram";
 
@@ -48,7 +48,9 @@ export function CardScreen({ card, index, total, onRated }: Props) {
       setRevealed(true);
     } else {
       haptic("medium");
-      next(true);
+      animate(x, 300, { duration: 0.25, ease: "easeOut" }).then(() =>
+        next(true),
+      );
     }
   }
 
