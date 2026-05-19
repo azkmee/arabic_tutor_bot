@@ -5,6 +5,7 @@ interface Props {
   tally: { correct: number; wrong: number };
   sessionType: string;
   totalDue: number;
+  onReviewMore: () => void;
 }
 
 const SESSION_LABEL: Record<string, string> = {
@@ -14,10 +15,11 @@ const SESSION_LABEL: Record<string, string> = {
   on_demand: "📚 On-demand",
 };
 
-export function SummaryScreen({ tally, sessionType, totalDue }: Props) {
+export function SummaryScreen({ tally, sessionType, totalDue, onReviewMore }: Props) {
   const total = tally.correct + tally.wrong;
   const accuracy = total > 0 ? Math.round((tally.correct / total) * 100) : 0;
   const [closing, setClosing] = useState(false);
+  const hasMore = totalDue > total;
 
   // Promote the Telegram main button as the primary close action.
   useEffect(() => {
@@ -67,11 +69,18 @@ export function SummaryScreen({ tally, sessionType, totalDue }: Props) {
           : "All caught up for today!"}
       </p>
 
-      {!tg()?.MainButton && (
-        <button className="btn btn-got" onClick={() => tg()?.close()}>
-          Close
-        </button>
-      )}
+      <div className="actions">
+        {hasMore && (
+          <button className="btn btn-got" onClick={onReviewMore}>
+            🔁 Review more
+          </button>
+        )}
+        {!tg()?.MainButton && (
+          <button className="btn ghost" onClick={() => tg()?.close()}>
+            Close
+          </button>
+        )}
+      </div>
 
       {closing && <p className="muted small">Closing…</p>}
     </div>
