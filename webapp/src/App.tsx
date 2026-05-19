@@ -34,22 +34,28 @@ export function App() {
       });
   }, []);
 
-  function onCardRated(correct: boolean) {
-    if (!session) return;
+  async function onSubmitCard(args: {
+    correct: boolean;
+    chosen?: string;
+    format: "reveal" | "mcq";
+  }) {
+    if (!session) throw new Error("no session");
     const card = session.cards[index];
-    haptic(correct ? "light" : "medium");
-    submitResult({
+    return submitResult({
       item_progress_id: card.item_progress_id,
-      correct,
       test_type: card.test_type,
       session_type: session.session_type,
-    }).catch((e) => console.error("submitResult failed", e));
+      ...args,
+    });
+  }
 
+  function onCardRated(correct: boolean) {
+    if (!session) return;
+    haptic(correct ? "light" : "medium");
     setTally((t) => ({
       correct: t.correct + (correct ? 1 : 0),
       wrong: t.wrong + (correct ? 0 : 1),
     }));
-
     const next = index + 1;
     if (next >= session.cards.length) {
       setStage(session.passage ? "passage" : "summary");
@@ -81,6 +87,7 @@ export function App() {
         card={session.cards[index]}
         index={index}
         total={session.cards.length}
+        submit={onSubmitCard}
         onRated={onCardRated}
       />
     );

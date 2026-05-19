@@ -13,6 +13,7 @@ from bot.handlers.review import (
     send_webapp_notification,
 )
 from bot.handlers.add_words import add_command
+from bot.handlers.add_passages import add_passage_command
 from bot.handlers.commands import status_command, help_command
 
 logging.basicConfig(
@@ -28,6 +29,7 @@ def _build_app():
 
     app.add_handler(CommandHandler("review", review_command))
     app.add_handler(CommandHandler("add", add_command))
+    app.add_handler(CommandHandler("add_passage", add_passage_command))
     app.add_handler(CommandHandler("status", status_command))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("start", help_command))
@@ -112,15 +114,21 @@ def _run_webhook(app):
             Route("/api/session/result", api.post_result, methods=["POST"]),
             Route("/api/lookup", api.lookup_word, methods=["GET"]),
             Route("/api/raw_words", api.post_raw_word, methods=["POST"]),
+            Route("/api/raw-passages", api.post_raw_passage, methods=["POST"]),
             Route("/api/passage/shown", api.post_passage_shown, methods=["POST"]),
             Route("/api/stats", api.get_stats, methods=["GET"]),
+            # Cowork (Claude Desktop routine) routes — X-Cowork-Token auth.
+            Route("/api/cowork/vocabulary", api.cowork_post_vocabulary, methods=["POST"]),
+            Route("/api/cowork/passages", api.cowork_post_passages, methods=["POST"]),
+            Route("/api/cowork/vocab-for-passage", api.cowork_get_vocab_for_passage, methods=["GET"]),
+            Route("/api/cowork/raw-passages", api.cowork_get_raw_passages, methods=["GET"]),
         ],
         middleware=[
             Middleware(
                 CORSMiddleware,
                 allow_origins=[WEB_APP_ORIGIN] if WEB_APP_ORIGIN != "*" else ["*"],
                 allow_methods=["GET", "POST", "OPTIONS"],
-                allow_headers=["Content-Type", "X-Telegram-Init-Data"],
+                allow_headers=["Content-Type", "X-Telegram-Init-Data", "X-Cowork-Token"],
                 max_age=600,
             ),
         ],

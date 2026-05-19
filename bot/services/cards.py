@@ -1,5 +1,11 @@
 import random
 from bot.config import TEST_TYPE_LABELS, LEECH_THRESHOLD
+from bot.db import _stats_totals
+
+# Probability of rendering a card as MCQ when distractors are available.
+# Tunable: start 50/50 so reveal-vs-MCQ comparisons stay meaningful while
+# both formats are alive.
+MCQ_PROBABILITY = 0.5
 
 
 def _pick_test_type(item, prog):
@@ -28,12 +34,12 @@ def _pick_test_type(item, prog):
         if tt == last_test and len(options) > 1:
             weights.append(0)  # avoid repeating same test
             continue
-        st = stats.get(tt, {})
-        total = st.get("correct", 0) + st.get("wrong", 0)
+        c, w = _stats_totals(stats.get(tt))
+        total = c + w
         if total == 0:
             weights.append(3)  # untested types get high priority
         else:
-            accuracy = st.get("correct", 0) / total
+            accuracy = c / total
             # Lower accuracy = higher weight (1-5 scale)
             weights.append(max(1, round(5 * (1 - accuracy))))
 
@@ -41,6 +47,44 @@ def _pick_test_type(item, prog):
         return random.choice(options)
 
     return random.choices(options, weights=weights, k=1)[0]
+
+
+# Answer field per test type — used to score MCQ on the server and to compose
+# the option list (correct answer is always this field; distractors live on
+# the vocab item under mcq_options[test_type]).
+ANSWER_FIELD = {
+    "meaning": "translation",
+    "plural": "plural",
+    "root_derive": "arabic",
+    "fill_blank": "arabic",
+    "grammar": "translation",
+}
+
+
+def _mcq_distractors(item, test_type):
+    options_doc = item.get("mcq_options") or {}
+    distractors = options_doc.get(test_type) or []
+    distractors = [d for d in distractors if isinstance(d, str) and d.strip()]
+    return distractors
+
+
+def pick_format(item, test_type):
+    """Return "mcq" if distractors are present and the coin flips that way."""
+    distractors = _mcq_distractors(item, test_type)
+    if len(distractors) >= 3 and random.random() < MCQ_PROBABILITY:
+        return "mcq"
+    return "reveal"
+
+
+def build_mcq_options(item, test_type):
+    """Shuffle 3 distractors + correct answer; return (options, correct)."""
+    correct = (item.get(ANSWER_FIELD[test_type]) or "").strip()
+    distractors = _mcq_distractors(item, test_type)[:3]
+    if not correct or len(distractors) < 3:
+        return [], ""
+    options = distractors + [correct]
+    random.shuffle(options)
+    return options, correct
 
 
 def build_card(item, prog):

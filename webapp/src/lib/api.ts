@@ -13,9 +13,22 @@ export interface Card {
   example_sentence: string;
   example_translation: string;
   test_type: "meaning" | "plural" | "fill_blank" | "root_derive" | "grammar";
+  format: "reveal" | "mcq";
+  options: string[];
   srs_level: number;
   streak: number;
   lapse_count: number;
+}
+
+export interface PassageWord {
+  arabic: string;
+  translation: string;
+}
+
+export interface PassageLine {
+  arabic: string;
+  english: string;
+  words: PassageWord[];
 }
 
 export interface Passage {
@@ -23,6 +36,7 @@ export interface Passage {
   title: string;
   text_arabic: string;
   text_english: string;
+  lines: PassageLine[];
   words_used: string[];
   comprehension_questions: string[];
   difficulty: string;
@@ -74,11 +88,20 @@ export function submitResult(args: {
   correct: boolean;
   test_type: string;
   session_type: string;
+  format?: "reveal" | "mcq";
+  chosen?: string;
 }) {
-  return request<{ ok: true; srs_level: number; next_review_at: string }>(
-    "/api/session/result",
-    { method: "POST", body: JSON.stringify(args) },
-  );
+  return request<{
+    ok: true;
+    correct: boolean;
+    correct_answer: string;
+    srs_level: number;
+    next_review_at: string;
+    streak: number;
+  }>("/api/session/result", {
+    method: "POST",
+    body: JSON.stringify(args),
+  });
 }
 
 export function lookupWord(arabic: string): Promise<LookupResult> {
