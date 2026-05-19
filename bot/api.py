@@ -110,6 +110,19 @@ def _authed_cowork(request):
 # ── Endpoints ───────────────────────────────────────────────────────────────
 
 
+def _passage_to_payload(p: dict) -> dict:
+    return {
+        "id": str(p["_id"]),
+        "title": p.get("title", ""),
+        "text_arabic": p.get("text_arabic") or p.get("arabic_text", ""),
+        "text_english": p.get("text_english", ""),
+        "lines": p.get("lines", []),
+        "words_used": p.get("words_used", []),
+        "comprehension_questions": p.get("comprehension_questions", []),
+        "difficulty": p.get("difficulty", "short"),
+    }
+
+
 async def get_session(request):
     """Build a review session and return cards + passage as JSON.
 
@@ -167,19 +180,7 @@ async def get_session(request):
         })
 
     passages = db.get_passages(limit=1)
-    passage_payload = None
-    if passages:
-        p = passages[0]
-        passage_payload = {
-            "id": str(p["_id"]),
-            "title": p.get("title", ""),
-            "text_arabic": p.get("text_arabic") or p.get("arabic_text", ""),
-            "text_english": p.get("text_english", ""),
-            "lines": p.get("lines", []),
-            "words_used": p.get("words_used", []),
-            "comprehension_questions": p.get("comprehension_questions", []),
-            "difficulty": p.get("difficulty", "short"),
-        }
+    passage_payload = _passage_to_payload(passages[0]) if passages else None
 
     total_due = len(db.get_due_items())
 
@@ -308,6 +309,31 @@ async def post_raw_word(request):
 
     db.add_raw_words([text], source="webapp")
     return _json({"ok": True})
+
+
+async def get_next_passage(request):
+    """Return the next least-recently-shown passage, optionally excluding one.
+
+    Used by the Mini App's "Read another" button to rotate to a different
+    passage without re-fetching cards. Returns `{"passage": null}` when no
+    other passage is available (e.g., the user only has one).
+    """
+    user, err = _authed(request)
+    if err:
+        return err
+
+    exclude_id = request.query_params.get("exclude", "").strip()
+    exclude_oid = None
+    if exclude_id:
+        try:
+            exclude_oid = ObjectId(exclude_id)
+        except Exception:
+            exclude_oid = None
+
+    passages = db.get_passages(limit=1, exclude_id=exclude_oid)
+    if not passages:
+        return _json({"passage": None})
+    return _json({"passage": _passage_to_payload(passages[0])})
 
 
 async def post_passage_shown(request):
