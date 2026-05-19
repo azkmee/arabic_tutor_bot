@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { motion, useMotionValue, useTransform } from "framer-motion";
+import { motion, useMotionValue, useTransform, animate } from "framer-motion";
 import { Card } from "../lib/api";
+import { haptic } from "../lib/telegram";
 
 interface Props {
   card: Card;
@@ -41,6 +42,18 @@ export function CardScreen({ card, index, total, onRated }: Props) {
     else x.set(0);
   }
 
+  function onCardTap() {
+    if (!revealed) {
+      haptic("light");
+      setRevealed(true);
+    } else {
+      haptic("medium");
+      animate(x, 300, { duration: 0.25, ease: "easeOut" }).then(() =>
+        next(true),
+      );
+    }
+  }
+
   return (
     <div className="screen" key={card.item_progress_id}>
       <header className="progress">
@@ -61,7 +74,7 @@ export function CardScreen({ card, index, total, onRated }: Props) {
         dragConstraints={{ left: 0, right: 0 }}
         style={{ x, rotate, opacity }}
         onDragEnd={onDragEnd}
-        onClick={() => setRevealed(true)}
+        onClick={onCardTap}
         whileTap={{ scale: 0.99 }}
       >
         <div className="card-label">{TEST_TYPE_LABELS[card.test_type] ?? "💬 Review"}</div>
@@ -79,7 +92,7 @@ export function CardScreen({ card, index, total, onRated }: Props) {
         {!revealed ? (
           <div className="hint">Tap to reveal</div>
         ) : (
-          <div className="hint">Swipe ← missed · got it →</div>
+          <div className="hint">Tap again for ✅ got it · swipe ← missed</div>
         )}
       </motion.div>
 
