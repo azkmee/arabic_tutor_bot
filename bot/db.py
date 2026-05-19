@@ -418,12 +418,14 @@ def get_vocab_for_passage(limit=20):
     return out[:limit]
 
 
-def get_passages(difficulty=None, limit=1):
-    """Get least-recently-shown passages."""
+def get_passages(difficulty=None, limit=1, exclude_id=None):
+    """Get least-recently-shown passages, optionally excluding one by id."""
     db = get_db()
     query = {}
     if difficulty:
         query["difficulty"] = difficulty
+    if exclude_id is not None:
+        query["_id"] = {"$ne": exclude_id}
     # Prefer passages not yet shown, then least recently shown
     return list(db.passages.find(query).sort("last_shown_at", 1).limit(limit))
 

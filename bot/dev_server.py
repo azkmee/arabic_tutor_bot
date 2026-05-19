@@ -38,6 +38,7 @@ def build_app() -> Starlette:
             Route("/api/lookup", api.lookup_word, methods=["GET"]),
             Route("/api/raw_words", api.post_raw_word, methods=["POST"]),
             Route("/api/raw-passages", api.post_raw_passage, methods=["POST"]),
+            Route("/api/passage/next", api.get_next_passage, methods=["GET"]),
             Route("/api/passage/shown", api.post_passage_shown, methods=["POST"]),
             Route("/api/stats", api.get_stats, methods=["GET"]),
             Route("/api/cowork/vocabulary", api.cowork_post_vocabulary, methods=["POST"]),

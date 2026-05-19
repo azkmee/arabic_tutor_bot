@@ -13,6 +13,7 @@ import { haptic } from "../lib/telegram";
 interface Props {
   passage: Passage;
   onDone: () => void;
+  onReadNext: () => void;
 }
 
 type Lookup =
@@ -31,7 +32,7 @@ function tokenize(text: string): string[] {
   return text.split(/(\s+)/).filter((t) => t.length > 0);
 }
 
-export function PassageScreen({ passage, onDone }: Props) {
+export function PassageScreen({ passage, onDone, onReadNext }: Props) {
   const [lookup, setLookup] = useState<Lookup | null>(null);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [showQuestions, setShowQuestions] = useState(false);
@@ -145,6 +146,15 @@ export function PassageScreen({ passage, onDone }: Props) {
       )}
 
       <div className="actions">
+        <button
+          className="btn ghost"
+          onClick={() => {
+            haptic("light");
+            onReadNext();
+          }}
+        >
+          📖 Read another
+        </button>
         <button className="btn btn-got" onClick={onFinish}>
           Done
         </button>
@@ -161,7 +171,12 @@ export function PassageScreen({ passage, onDone }: Props) {
             </div>
             {lookup.state === "loading" && <p className="muted">Looking up…</p>}
             {lookup.state === "gloss" && (
-              <p className="reveal">{lookup.translation}</p>
+              <>
+                <p className="reveal">{lookup.translation}</p>
+                <button className="btn btn-got" onClick={onAddToRecall}>
+                  ➕ Add to recall
+                </button>
+              </>
             )}
             {lookup.state === "found" && (
               <>

@@ -121,3 +121,8 @@ export function markPassageShown(passage_id: string) {
     body: JSON.stringify({ passage_id }),
   });
 }
+
+export function fetchNextPassage(excludeId?: string): Promise<{ passage: Passage | null }> {
+  const q = excludeId ? `?exclude=${encodeURIComponent(excludeId)}` : "";
+  return request<{ passage: Passage | null }>(`/api/passage/next${q}`);
+}

@@ -2,7 +2,13 @@ import { useEffect, useState } from "react";
 import { CardScreen } from "./screens/CardScreen";
 import { PassageScreen } from "./screens/PassageScreen";
 import { SummaryScreen } from "./screens/SummaryScreen";
-import { fetchSession, submitResult, Session } from "./lib/api";
+import {
+  fetchSession,
+  fetchNextPassage,
+  markPassageShown,
+  submitResult,
+  Session,
+} from "./lib/api";
 import { haptic, initTelegram } from "./lib/telegram";
 
 type Stage = "loading" | "cards" | "passage" | "summary" | "error";
@@ -104,6 +110,24 @@ export function App() {
       <PassageScreen
         passage={session.passage}
         onDone={() => setStage("summary")}
+        onReadNext={async () => {
+          const current = session.passage!;
+          try {
+            await markPassageShown(current.id);
+          } catch (e) {
+            console.error("markPassageShown failed", e);
+          }
+          try {
+            const { passage } = await fetchNextPassage(current.id);
+            if (passage) {
+              setSession({ ...session, passage });
+            } else {
+              setStage("summary");
+            }
+          } catch (e) {
+            console.error("fetchNextPassage failed", e);
+          }
+        }}
       />
     );
   }
