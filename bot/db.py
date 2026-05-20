@@ -430,6 +430,26 @@ def get_passages(difficulty=None, limit=1, exclude_id=None):
     return list(db.passages.find(query).sort("last_shown_at", 1).limit(limit))
 
 
+def normalize_comprehension_questions(raw):
+    """Coerce the questions array into the canonical [{question, answer, english}] shape.
+
+    Older passages stored each question as a plain Arabic string; newer ones
+    are dicts that also carry the answer (and optionally an English gloss),
+    so the Mini App can reveal the answer without a second round trip.
+    """
+    out = []
+    for entry in raw or []:
+        if isinstance(entry, str):
+            out.append({"question": entry, "answer": "", "english": ""})
+        elif isinstance(entry, dict):
+            out.append({
+                "question": entry.get("question") or entry.get("arabic", ""),
+                "answer": entry.get("answer", ""),
+                "english": entry.get("english", ""),
+            })
+    return out
+
+
 def mark_passage_shown(passage_id):
     db = get_db()
     db.passages.update_one(

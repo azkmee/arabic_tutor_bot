@@ -269,7 +269,7 @@ Database: `arabic_learning`
 | `text_arabic` | string | Arabic passage text (canonical field name) |
 | `text_english` | string | English translation |
 | `words_used` | array | Arabic words from vocabulary used in passage |
-| `comprehension_questions` | array | Arabic comprehension questions |
+| `comprehension_questions` | array | `[{question, answer, english}]` (legacy: array of strings) — answer ships with the question so the Mini App reveals it without a second request |
 | `difficulty` | string | `"short"` or `"long"` |
 | `last_shown_at` | datetime | When last displayed (for least-recently-shown selection) |
 | `times_shown` | int | Total display count |

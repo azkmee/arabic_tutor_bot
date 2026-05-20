@@ -3,6 +3,7 @@ import {
   Passage,
   PassageLine,
   PassageWord,
+  ComprehensionQuestion,
   LookupResult,
   lookupWord,
   addRawWord,
@@ -140,7 +141,7 @@ export function PassageScreen({ passage, onDone, onReadNext }: Props) {
       {showQuestions && passage.comprehension_questions.length > 0 && (
         <ol className="questions" dir="rtl" lang="ar">
           {passage.comprehension_questions.map((q, i) => (
-            <li key={i}>{q}</li>
+            <QuestionRow key={i} question={q} />
           ))}
         </ol>
       )}
@@ -249,6 +250,43 @@ function LineRow({
         <div className="english-line">{line.english}</div>
       )}
     </div>
+  );
+}
+
+function QuestionRow({ question }: { question: ComprehensionQuestion }) {
+  const [revealed, setRevealed] = useState(false);
+  const hasAnswer = Boolean(question.answer);
+  return (
+    <li>
+      <div className="q-text">{question.question}</div>
+      {hasAnswer && (
+        <button
+          type="button"
+          className={`q-answer${revealed ? " revealed" : ""}`}
+          dir="rtl"
+          lang="ar"
+          onClick={() => {
+            if (!revealed) {
+              haptic("light");
+              setRevealed(true);
+            }
+          }}
+        >
+          {revealed ? (
+            <>
+              <span>{question.answer}</span>
+              {question.english && (
+                <span className="q-answer-en" dir="ltr" lang="en">
+                  {question.english}
+                </span>
+              )}
+            </>
+          ) : (
+            <span className="q-reveal-hint">Tap to reveal answer</span>
+          )}
+        </button>
+      )}
+    </li>
   );
 }
 

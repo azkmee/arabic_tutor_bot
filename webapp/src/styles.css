@@ -274,6 +274,47 @@ html, body, #root {
   font-size: 1.1em;
   line-height: 1.8;
 }
+.questions li {
+  margin-bottom: 12px;
+}
+.questions li:last-child {
+  margin-bottom: 0;
+}
+.q-text {
+  margin-bottom: 4px;
+}
+.q-answer {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px 12px;
+  background: rgba(127, 127, 127, 0.08);
+  border: 1px dashed rgba(127, 127, 127, 0.3);
+  border-radius: 10px;
+  text-align: right;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.q-answer.revealed {
+  background: rgba(46, 139, 87, 0.12);
+  border-style: solid;
+  border-color: rgba(46, 139, 87, 0.35);
+  color: var(--good);
+  cursor: default;
+}
+.q-reveal-hint {
+  color: var(--muted);
+  font-size: 0.85em;
+  font-style: italic;
+}
+.q-answer-en {
+  color: var(--muted);
+  font-size: 0.85em;
+  text-align: left;
+}
 
 /* Modal */
 .modal-backdrop {
