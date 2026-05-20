@@ -168,23 +168,14 @@ def add_passages(passages: list[dict]) -> str:
       - text_english: full English translation, optional
       - words_used: list of Arabic words; auto-derived from lines[].words
         when omitted
-      - comprehension_questions: list of question objects
-          {
-            "question": "<fully diacritized Arabic question>",
-            "answer":   "<fully diacritized Arabic answer drawn from the passage>",
-            "english":  "<English gloss of the answer, optional>"
-          }
-        Legacy passages stored each entry as a bare Arabic string; that's
-        still accepted but new ingestion should always include the answer so
-        the Mini App can reveal it inline without a second round trip.
+      - comprehension_questions: list of fully-diacritized Arabic questions
       - difficulty: "short" or "long" (default: "short")
       - raw_passage_id (optional): id of a `raw_passages` doc this enriches;
         when present, that staging doc is flipped to status="processed".
 
-    All Arabic in `lines`, `title`, and `comprehension_questions` (both the
-    `question` and `answer` fields) must carry full tashkeel. Vocab gloss
-    strings should match the source word in the corresponding
-    vocabulary_items entry when one exists.
+    All Arabic in `lines`, `title`, and `comprehension_questions` must
+    carry full tashkeel. Vocab gloss strings should match the source word
+    in the corresponding vocabulary_items entry when one exists.
     """
     db = get_db()
     now = datetime.now(timezone.utc)

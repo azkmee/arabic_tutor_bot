@@ -79,9 +79,7 @@ matching pending `raw_words` to processed.
      `vocabulary_items` translation when available; otherwise infer.
    - Write `english` for each line (sentence translation).
    - Compose a 2–4-word `title` and 2–3 short Arabic
-     `comprehension_questions` (also fully diacritized). Each question is an
-     object `{question, answer, english}` — the Mini App reveals the answer
-     in-place, so the answer must ship with the question (not in a follow-up).
+     `comprehension_questions` (also fully diacritized).
 3. Set `raw_passage_id` to the staging doc's `id` so the staging entry
    flips to processed.
 
@@ -112,16 +110,8 @@ matching pending `raw_words` to processed.
        }
      ],
      "comprehension_questions": [
-       {
-         "question": "إِلَى أَيْنَ ذَهَبَ أَحْمَدُ؟",
-         "answer": "إِلَى المَكْتَبَةِ.",
-         "english": "To the library."
-       },
-       {
-         "question": "مَاذَا اِسْتَعَارَ؟",
-         "answer": "كِتَابًا جَدِيدًا.",
-         "english": "A new book."
-       }
+       "إِلَى أَيْنَ ذَهَبَ أَحْمَدُ؟",
+       "مَاذَا اِسْتَعَارَ؟"
      ]
    }
    ```
@@ -190,13 +180,7 @@ for verbs). Each present key must have exactly 3 entries.
       ]
     }
   ],
-  "comprehension_questions": [
-    {
-      "question": "<fully diacritized Arabic question>",
-      "answer": "<short Arabic answer drawn from the passage, fully diacritized>",
-      "english": "<English gloss of the answer>"
-    }
-  ]
+  "comprehension_questions": ["<question 1>", "<question 2>"]
 }
 ```
 

@@ -31,12 +31,6 @@ export interface PassageLine {
   words: PassageWord[];
 }
 
-export interface ComprehensionQuestion {
-  question: string;
-  answer: string;
-  english: string;
-}
-
 export interface Passage {
   id: string;
   title: string;
@@ -44,7 +38,7 @@ export interface Passage {
   text_english: string;
   lines: PassageLine[];
   words_used: string[];
-  comprehension_questions: ComprehensionQuestion[];
+  comprehension_questions: string[];
   difficulty: string;
 }
 

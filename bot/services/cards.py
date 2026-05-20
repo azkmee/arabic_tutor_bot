@@ -1,6 +1,6 @@
 import random
 from bot.config import TEST_TYPE_LABELS, LEECH_THRESHOLD
-from bot.db import _stats_totals, normalize_comprehension_questions
+from bot.db import _stats_totals
 
 # Probability of rendering a card as MCQ when distractors are available.
 # Tunable: start 50/50 so reveal-vs-MCQ comparisons stay meaningful while
@@ -181,9 +181,7 @@ def build_paragraph_card(paragraph):
     arabic = paragraph.get("text_arabic") or paragraph.get("arabic_text", "")
     english = paragraph.get("text_english", "")
     title = paragraph.get("title", "")
-    questions = normalize_comprehension_questions(
-        paragraph.get("comprehension_questions")
-    )
+    questions = paragraph.get("comprehension_questions", [])
 
     lines = [
         "<b>مراجعة يومية</b> — Daily Review",
@@ -201,10 +199,7 @@ def build_paragraph_card(paragraph):
     if questions:
         lines += ["", "<b>أسئلة:</b>"]
         for i, q in enumerate(questions, 1):
-            row = f"{i}. {q['question']}"
-            if q["answer"]:
-                row += f"  <tg-spoiler>➡️  {q['answer']}</tg-spoiler>"
-            lines.append(row)
+            lines.append(f"{i}. {q}")
 
     lines += ["", "─" * 28]
 

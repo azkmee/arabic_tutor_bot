@@ -118,9 +118,7 @@ def _passage_to_payload(p: dict) -> dict:
         "text_english": p.get("text_english", ""),
         "lines": p.get("lines", []),
         "words_used": p.get("words_used", []),
-        "comprehension_questions": db.normalize_comprehension_questions(
-            p.get("comprehension_questions")
-        ),
+        "comprehension_questions": p.get("comprehension_questions", []),
         "difficulty": p.get("difficulty", "short"),
     }
 
