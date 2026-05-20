@@ -15,6 +15,9 @@ export interface Card {
   test_type: "meaning" | "plural" | "fill_blank" | "root_derive" | "grammar";
   format: "reveal" | "mcq";
   options: string[];
+  // Populated for MCQ cards so the client can grade locally without
+  // round-tripping through /api/session/result. Empty for reveal cards.
+  correct_answer: string;
   srs_level: number;
   streak: number;
   lapse_count: number;

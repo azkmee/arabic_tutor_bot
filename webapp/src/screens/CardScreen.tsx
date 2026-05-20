@@ -190,20 +190,17 @@ function RevealCardScreen({ card, index, total, submit, onRated }: Props) {
 function McqCardScreen({ card, index, total, submit, onRated }: Props) {
   const [chosen, setChosen] = useState<string | null>(null);
   const [verdict, setVerdict] = useState<SubmitResponse | null>(null);
-  const [pending, setPending] = useState(false);
 
   function pick(option: string) {
     if (chosen) return;
     setChosen(option);
-    setPending(true);
-    submit({ correct: false, chosen: option, format: "mcq" })
-      .then((r) => setVerdict(r))
-      .catch((e) => {
-        console.error("submitResult failed", e);
-        // Best-effort fallback: treat as wrong and let the user move on.
-        setVerdict({ correct: false, correct_answer: "" });
-      })
-      .finally(() => setPending(false));
+    // Card ships its own `correct_answer`, so grade locally for an instant
+    // reveal. POST to /api/session/result in the background to update SRS.
+    const correct = option === card.correct_answer;
+    setVerdict({ correct, correct_answer: card.correct_answer });
+    submit({ correct, chosen: option, format: "mcq" }).catch((e) =>
+      console.error("submitResult failed", e),
+    );
   }
 
   function advance() {
@@ -239,13 +236,11 @@ function McqCardScreen({ card, index, total, submit, onRated }: Props) {
         <CardFront card={card} />
         <CardStatus card={card} />
         <div className="hint">
-          {!chosen
+          {!verdict
             ? "Pick the correct answer"
-            : pending
-              ? "Checking…"
-              : verdict?.correct
-                ? "✅ Correct"
-                : "❌ Not quite"}
+            : verdict.correct
+              ? "✅ Correct"
+              : "❌ Not quite"}
         </div>
       </div>
 

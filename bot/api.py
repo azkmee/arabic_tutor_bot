@@ -155,12 +155,14 @@ async def get_session(request):
         test_type = _pick_test_type(item, prog)
         card_format = pick_format(item, test_type)
         options = []
+        correct_answer = ""
         if card_format == "mcq":
-            options, _correct = build_mcq_options(item, test_type)
+            options, correct_answer = build_mcq_options(item, test_type)
             if not options:
                 # Distractor list became invalid (e.g. empty correct answer)
                 # — fall back to reveal so the card still works.
                 card_format = "reveal"
+                correct_answer = ""
         cards.append({
             "item_progress_id": str(prog["_id"]),
             "arabic": item.get("arabic", ""),
@@ -174,6 +176,11 @@ async def get_session(request):
             "test_type": test_type,
             "format": card_format,
             "options": options,
+            # Ship the MCQ answer with the card so the client can grade
+            # locally and reveal instantly. /api/session/result still
+            # re-derives the verdict for SRS, which the client fires in
+            # the background.
+            "correct_answer": correct_answer,
             "srs_level": prog.get("srs_level", 0),
             "streak": prog.get("streak", 0),
             "lapse_count": prog.get("lapse_count", 0),
