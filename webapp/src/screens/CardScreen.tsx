@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { MouseEvent, useEffect, useState } from "react";
 import { motion, useMotionValue, useTransform, animate } from "framer-motion";
 import { Card } from "../lib/api";
 import { haptic } from "../lib/telegram";
@@ -102,16 +102,19 @@ function RevealCardScreen({ card, index, total, submit, onRated }: Props) {
     else x.set(0);
   }
 
-  function onCardTap() {
+  function onCardTap(event: MouseEvent<HTMLDivElement>) {
     if (!revealed) {
       haptic("light");
       setRevealed(true);
-    } else {
-      haptic("medium");
-      animate(x, 300, { duration: 0.25, ease: "easeOut" }).then(() =>
-        next(true),
-      );
+      return;
     }
+    haptic("medium");
+    const rect = event.currentTarget.getBoundingClientRect();
+    const tappedRight = event.clientX - rect.left > rect.width / 2;
+    const target = tappedRight ? 300 : -300;
+    animate(x, target, { duration: 0.25, ease: "easeOut" }).then(() =>
+      next(tappedRight),
+    );
   }
 
   useEffect(() => {
@@ -160,7 +163,7 @@ function RevealCardScreen({ card, index, total, submit, onRated }: Props) {
         {!revealed ? (
           <div className="hint">Tap or press space to reveal</div>
         ) : (
-          <div className="hint">Tap or → for ✅ · swipe or ← for missed</div>
+          <div className="hint">Tap right for ✅ · tap left for ❌</div>
         )}
       </motion.div>
 
