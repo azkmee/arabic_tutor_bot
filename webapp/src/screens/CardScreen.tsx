@@ -306,7 +306,7 @@ function CardFront({ card }: { card: Card }) {
       );
     case "fill_blank": {
       const sentence = card.example_sentence
-        ? card.example_sentence.replace(card.arabic, "________")
+        ? blankWordInSentence(card.example_sentence, card.arabic)
         : card.arabic;
       return (
         <div className="card-front">
@@ -367,4 +367,34 @@ function CardBack({ card }: { card: Card }) {
         </div>
       );
   }
+}
+
+// Replace the target word in `sentence` with a blank, tolerating Arabic
+// diacritic differences and an optional definite-article (الـ) prefix on the
+// sentence token. Falls back to exact replace, then to the original sentence.
+const ARABIC_DIACRITICS = /[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED]/g;
+
+function stripDiacritics(s: string): string {
+  return s.replace(ARABIC_DIACRITICS, "");
+}
+
+function blankWordInSentence(sentence: string, word: string): string {
+  const target = stripDiacritics(word).replace(/^\u0627\u0644/, "");
+  if (!target) return sentence;
+
+  const tokens = sentence.split(/(\s+)/);
+  let replaced = false;
+  const out = tokens.map((tok) => {
+    if (replaced || /^\s*$/.test(tok) || !tok) return tok;
+    const match = tok.match(/^([\u0600-\u06FF\u0750-\u077F]+)(.*)$/);
+    if (!match) return tok;
+    const [, core, rest] = match;
+    const normalized = stripDiacritics(core).replace(/^\u0627\u0644/, "");
+    if (normalized === target) {
+      replaced = true;
+      return "________" + rest;
+    }
+    return tok;
+  });
+  return replaced ? out.join("") : sentence;
 }
