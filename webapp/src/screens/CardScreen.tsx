@@ -28,6 +28,22 @@ const TEST_TYPE_LABELS: Record<string, string> = {
   grammar: "📐 Apply the grammar rule",
 };
 
+// Mirrors bot/services/cards.py:ANSWER_FIELD so MCQ can be graded client-side
+// for instant feedback; the server still re-grades and owns SRS state.
+const ANSWER_FIELD: Record<string, keyof Card> = {
+  meaning: "translation",
+  plural: "plural",
+  root_derive: "arabic",
+  fill_blank: "arabic",
+  grammar: "translation",
+};
+
+function correctAnswerFor(card: Card): string {
+  const field = ANSWER_FIELD[card.test_type] ?? "translation";
+  const value = card[field];
+  return typeof value === "string" ? value.trim() : "";
+}
+
 export function CardScreen({ card, index, total, submit, onRated }: Props) {
   if (card.format === "mcq" && card.options.length > 0) {
     return (
@@ -190,20 +206,21 @@ function RevealCardScreen({ card, index, total, submit, onRated }: Props) {
 function McqCardScreen({ card, index, total, submit, onRated }: Props) {
   const [chosen, setChosen] = useState<string | null>(null);
   const [verdict, setVerdict] = useState<SubmitResponse | null>(null);
-  const [pending, setPending] = useState(false);
+
+  useEffect(() => {
+    setChosen(null);
+    setVerdict(null);
+  }, [card.item_progress_id]);
 
   function pick(option: string) {
     if (chosen) return;
+    const correctAnswer = correctAnswerFor(card);
+    const correct = !!correctAnswer && option === correctAnswer;
     setChosen(option);
-    setPending(true);
-    submit({ correct: false, chosen: option, format: "mcq" })
-      .then((r) => setVerdict(r))
-      .catch((e) => {
-        console.error("submitResult failed", e);
-        // Best-effort fallback: treat as wrong and let the user move on.
-        setVerdict({ correct: false, correct_answer: "" });
-      })
-      .finally(() => setPending(false));
+    setVerdict({ correct, correct_answer: correctAnswer });
+    submit({ correct, chosen: option, format: "mcq" }).catch((e) =>
+      console.error("submitResult failed", e),
+    );
   }
 
   function advance() {
@@ -239,13 +256,11 @@ function McqCardScreen({ card, index, total, submit, onRated }: Props) {
         <CardFront card={card} />
         <CardStatus card={card} />
         <div className="hint">
-          {!chosen
+          {!verdict
             ? "Pick the correct answer"
-            : pending
-              ? "Checking…"
-              : verdict?.correct
-                ? "✅ Correct"
-                : "❌ Not quite"}
+            : verdict.correct
+              ? "✅ Correct"
+              : "❌ Not quite"}
         </div>
       </div>
 
