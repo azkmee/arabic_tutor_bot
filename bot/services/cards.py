@@ -1,6 +1,48 @@
 import random
+import re
 from bot.config import TEST_TYPE_LABELS, LEECH_THRESHOLD
 from bot.db import _stats_totals
+
+# Arabic diacritics (tashkeel + Quranic small marks + dagger alif).
+_ARABIC_DIACRITICS = re.compile(
+    r"[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED]"
+)
+_AL_PREFIX = re.compile(r"^\u0627\u0644")
+_LEADING_ARABIC = re.compile(r"^([\u0600-\u06FF\u0750-\u077F]+)(.*)$")
+
+
+def _strip_diacritics(s: str) -> str:
+    return _ARABIC_DIACRITICS.sub("", s)
+
+
+def _blank_word_in_sentence(sentence: str, word: str) -> str:
+    """Replace `word` in `sentence` with a blank, tolerating Arabic diacritic
+    differences and an optional definite-article (الـ) prefix on the sentence
+    token.
+    """
+    target = _AL_PREFIX.sub("", _strip_diacritics(word))
+    if not target:
+        return sentence
+
+    parts = re.split(r"(\s+)", sentence)
+    replaced = False
+    out = []
+    for tok in parts:
+        if replaced or not tok or tok.isspace():
+            out.append(tok)
+            continue
+        m = _LEADING_ARABIC.match(tok)
+        if not m:
+            out.append(tok)
+            continue
+        core, rest = m.group(1), m.group(2)
+        normalized = _AL_PREFIX.sub("", _strip_diacritics(core))
+        if normalized == target:
+            out.append("________" + rest)
+            replaced = True
+        else:
+            out.append(tok)
+    return "".join(out) if replaced else sentence
 
 # Probability of rendering a card as MCQ when distractors are available.
 # Tunable: start 50/50 so reveal-vs-MCQ comparisons stay meaningful while
@@ -141,7 +183,7 @@ def build_card(item, prog):
         sentence = item.get("example_sentence", "")
         example_trans = item.get("example_translation", "")
         if sentence:
-            blank = sentence.replace(arabic, "________")
+            blank = _blank_word_in_sentence(sentence, arabic)
             lines += [blank, ""]
             reveal = f"➡️  {arabic}  ({eng})"
             if example_trans:
