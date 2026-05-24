@@ -1,7 +1,7 @@
 import { MouseEvent, useEffect, useState } from "react";
 import { motion, useMotionValue, useTransform, animate } from "framer-motion";
 import { Card } from "../lib/api";
-import { haptic } from "../lib/telegram";
+import { haptic, tg } from "../lib/telegram";
 
 interface SubmitResponse {
   correct: boolean;
@@ -218,6 +218,7 @@ function McqCardScreen({ card, index, total, submit, onRated }: Props) {
     const correct = !!correctAnswer && option === correctAnswer;
     setChosen(option);
     setVerdict({ correct, correct_answer: correctAnswer });
+    tg()?.HapticFeedback?.notificationOccurred(correct ? "success" : "error");
     submit({ correct, chosen: option, format: "mcq" }).catch((e) =>
       console.error("submitResult failed", e),
     );
@@ -233,6 +234,28 @@ function McqCardScreen({ card, index, total, submit, onRated }: Props) {
     if (opt === verdict.correct_answer) return "btn mcq-option mcq-correct";
     if (opt === chosen) return "btn mcq-option mcq-wrong";
     return "btn mcq-option mcq-dim";
+  }
+
+  function optionAnimate(opt: string) {
+    if (!verdict) return undefined;
+    if (opt === verdict.correct_answer) {
+      return { scale: [1, 1.08, 1] };
+    }
+    if (opt === chosen) {
+      return { x: [0, -10, 10, -8, 8, -4, 4, 0] };
+    }
+    return undefined;
+  }
+
+  function optionTransition(opt: string) {
+    if (!verdict) return undefined;
+    if (opt === verdict.correct_answer) {
+      return { duration: 0.45, ease: "easeOut" };
+    }
+    if (opt === chosen) {
+      return { duration: 0.45, ease: "easeInOut" };
+    }
+    return undefined;
   }
 
   useEffect(() => {
@@ -251,29 +274,59 @@ function McqCardScreen({ card, index, total, submit, onRated }: Props) {
     <div className="screen" key={card.item_progress_id}>
       <CardHeader index={index} total={total} />
 
-      <div className="card">
+      <motion.div
+        className="card"
+        animate={
+          verdict
+            ? verdict.correct
+              ? { boxShadow: ["0 2px 8px rgba(0,0,0,0.06)", "0 0 0 3px rgba(46,139,87,0.45)", "0 2px 8px rgba(0,0,0,0.06)"] }
+              : { boxShadow: ["0 2px 8px rgba(0,0,0,0.06)", "0 0 0 3px rgba(192,57,43,0.45)", "0 2px 8px rgba(0,0,0,0.06)"] }
+            : undefined
+        }
+        transition={{ duration: 0.6, ease: "easeOut" }}
+      >
         <div className="card-label">{TEST_TYPE_LABELS[card.test_type] ?? "💬 Review"}</div>
         <CardFront card={card} />
         <CardStatus card={card} />
         <div className="hint">
-          {!verdict
-            ? "Pick the correct answer"
-            : verdict.correct
-              ? "✅ Correct"
-              : "❌ Not quite"}
+          {!verdict ? (
+            "Pick the correct answer"
+          ) : verdict.correct ? (
+            <motion.span
+              key="correct-hint"
+              initial={{ scale: 0.5, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ type: "spring", stiffness: 400, damping: 14 }}
+              style={{ display: "inline-block", color: "var(--good)", fontStyle: "normal", fontWeight: 600 }}
+            >
+              ✅ Correct
+            </motion.span>
+          ) : (
+            <motion.span
+              key="wrong-hint"
+              initial={{ x: 0 }}
+              animate={{ x: [0, -6, 6, -4, 4, 0] }}
+              transition={{ duration: 0.4 }}
+              style={{ display: "inline-block", color: "var(--bad)", fontStyle: "normal", fontWeight: 600 }}
+            >
+              ❌ Not quite
+            </motion.span>
+          )}
         </div>
-      </div>
+      </motion.div>
 
       <div className="mcq-options">
         {card.options.map((opt) => (
-          <button
+          <motion.button
             key={opt}
             className={optionClass(opt)}
             onClick={() => pick(opt)}
             disabled={!!chosen}
+            animate={optionAnimate(opt)}
+            transition={optionTransition(opt)}
           >
             {opt}
-          </button>
+          </motion.button>
         ))}
       </div>
 
