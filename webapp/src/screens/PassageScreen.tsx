@@ -39,6 +39,7 @@ export function PassageScreen({ passage, onDone, onReadNext }: Props) {
   const [showEnglish, setShowEnglish] = useState(false);
 
   const hasLines = (passage.lines?.length ?? 0) > 0;
+  const knownWords = new Set(passage.known_words ?? []);
 
   function toggleLine(i: number) {
     haptic("light");
@@ -110,6 +111,7 @@ export function PassageScreen({ passage, onDone, onReadNext }: Props) {
               expanded={expanded.has(i)}
               onToggle={() => toggleLine(i)}
               onWordTap={showGloss}
+              knownWords={knownWords}
             />
           ))}
         </div>
@@ -117,6 +119,7 @@ export function PassageScreen({ passage, onDone, onReadNext }: Props) {
         <FallbackBlob
           text={passage.text_arabic}
           onWordTap={remoteLookup}
+          knownWords={knownWords}
         />
       )}
 
@@ -216,11 +219,13 @@ function LineRow({
   expanded,
   onToggle,
   onWordTap,
+  knownWords,
 }: {
   line: PassageLine;
   expanded: boolean;
   onToggle: () => void;
   onWordTap: (word: PassageWord) => void;
+  knownWords: Set<string>;
 }) {
   return (
     <div className="passage-line" onClick={onToggle}>
@@ -229,7 +234,7 @@ function LineRow({
           line.words.map((w, i) => (
             <span key={i}>
               <span
-                className="word"
+                className={knownWords.has(w.arabic) ? "word word-known" : "word"}
                 onClick={(e) => {
                   e.stopPropagation();
                   onWordTap(w);
@@ -255,9 +260,11 @@ function LineRow({
 function FallbackBlob({
   text,
   onWordTap,
+  knownWords,
 }: {
   text: string;
   onWordTap: (raw: string) => void;
+  knownWords: Set<string>;
 }) {
   const tokens = tokenize(text);
   return (
@@ -268,7 +275,9 @@ function FallbackBlob({
         ) : (
           <span
             key={i}
-            className="word"
+            className={
+              knownWords.has(stripPunct(token)) ? "word word-known" : "word"
+            }
             onClick={() => onWordTap(token)}
           >
             {token}
