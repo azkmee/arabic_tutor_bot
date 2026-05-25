@@ -11,6 +11,7 @@ import hmac
 import json
 import logging
 import random
+import re
 import uuid
 from urllib.parse import parse_qsl
 
@@ -110,6 +111,28 @@ def _authed_cowork(request):
 # ── Endpoints ───────────────────────────────────────────────────────────────
 
 
+# Same punctuation set the frontend strips in PassageScreen.stripPunct — kept
+# in sync so server-side dictionary lookups match what the user can tap.
+_PUNCT_RE = re.compile(r"^[.,!?؟،؛:()«»\"']+|[.,!?؟،؛:()«»\"']+$")
+
+
+def _passage_known_words(p: dict) -> list[str]:
+    """Words in the passage that exist in vocabulary_items (for color coding)."""
+    candidates: set[str] = set()
+    for w in p.get("words_used") or []:
+        if w:
+            candidates.add(w)
+    if not candidates:
+        text = p.get("text_arabic") or p.get("arabic_text", "")
+        for token in text.split():
+            stripped = _PUNCT_RE.sub("", token)
+            if stripped:
+                candidates.add(stripped)
+    if not candidates:
+        return []
+    return sorted(db.find_existing_words(list(candidates)))
+
+
 def _passage_to_payload(p: dict) -> dict:
     return {
         "id": str(p["_id"]),
@@ -118,6 +141,7 @@ def _passage_to_payload(p: dict) -> dict:
         "text_english": p.get("text_english", ""),
         "lines": p.get("lines", []),
         "words_used": p.get("words_used", []),
+        "known_words": _passage_known_words(p),
         "comprehension_questions": p.get("comprehension_questions", []),
         "difficulty": p.get("difficulty", "short"),
     }

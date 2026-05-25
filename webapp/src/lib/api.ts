@@ -38,6 +38,7 @@ export interface Passage {
   text_english: string;
   lines: PassageLine[];
   words_used: string[];
+  known_words: string[];
   comprehension_questions: string[];
   difficulty: string;
 }

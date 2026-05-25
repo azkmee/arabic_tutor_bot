@@ -252,6 +252,10 @@ html, body, #root {
 .word:active {
   background: rgba(36, 129, 204, 0.15);
 }
+.word.word-known {
+  color: var(--good);
+  font-weight: 500;
+}
 
 .passage-toolbar {
   display: flex;
